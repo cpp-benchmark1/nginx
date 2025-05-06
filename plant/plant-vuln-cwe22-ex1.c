@@ -7,124 +7,163 @@
 #include <fcntl.h>
 #include <sys/stat.h>
 #include <errno.h>
+#include <arpa/inet.h>
 
 #define PORT 8080
 #define BUFFER_SIZE 1024
 #define BASE_DIR "/app/files"
 
 // Function to handle file requests
-void handle_request(int socket_fd) {
+void handle_request(int client_fd) {
     char buffer[BUFFER_SIZE] = { 0 };
-    char filepath[BUFFER_SIZE] = { 0 };
     char response[BUFFER_SIZE] = { 0 };
     
-    printf("Connection received, reading request...\n");
+    printf("\n=== New Request ===\n");
+    printf("Waiting for request...\n");
     
-    // Read the request
-    ssize_t bytes_read = read(socket_fd, buffer, BUFFER_SIZE - 1);
+    // SOURCE: Vulnerable to path traversal - receiving untrusted input from socket
+    ssize_t bytes_read = read(client_fd, buffer, BUFFER_SIZE - 1);
     if (bytes_read <= 0) {
         printf("Failed to read request\n");
         return;
     }
-    buffer[bytes_read] = '\0';  // Null terminate
+    buffer[bytes_read] = '\0';
     
-    printf("Request received: %s\n", buffer);
-    
-    // Extract the requested file path
-    if (sscanf(buffer, "GET %s", filepath) != 1) {
-        snprintf(response, sizeof(response), "Invalid request format\n");
-        write(socket_fd, response, strlen(response));
-        return;
+    // Remove newline if present
+    if (buffer[bytes_read-1] == '\n') {
+        buffer[bytes_read-1] = '\0';
     }
+    
+    printf("Received request: '%s'\n", buffer);
     
     // SINK: Vulnerable to path traversal - no path validation
     char fullpath[BUFFER_SIZE];
-    snprintf(fullpath, sizeof(fullpath), "%s%s", BASE_DIR, filepath);
-    printf("Attempting to access file: %s\n", fullpath);
+    snprintf(fullpath, sizeof(fullpath), "%s%s", BASE_DIR, buffer);
+    printf("Attempting to access: %s\n", fullpath);
     
     // Try to open the file
     int fd = open(fullpath, O_RDONLY);
     if (fd < 0) {
-        snprintf(response, sizeof(response), "Error opening file: %s\n", strerror(errno));
-        write(socket_fd, response, strlen(response));
+        printf("Error opening file: %s\n", strerror(errno));
+        snprintf(response, sizeof(response), "ERROR: %s\n", strerror(errno));
+        write(client_fd, response, strlen(response));
         return;
     }
     
-    // Read and send file contents
-    while ((bytes_read = read(fd, buffer, BUFFER_SIZE - 1)) > 0) {
-        buffer[bytes_read] = '\0';
-        write(socket_fd, buffer, bytes_read);
+    // Read file contents
+    bytes_read = read(fd, response, BUFFER_SIZE - 1);
+    if (bytes_read > 0) {
+        response[bytes_read] = '\0';
+        printf("File contents (%zd bytes):\n%s\n", bytes_read, response);
+        printf("Sending response to client...\n");
+        write(client_fd, response, bytes_read);
+        printf("Response sent successfully\n");
+    } else {
+        printf("File is empty\n");
+        write(client_fd, "File is empty\n", 13);
     }
     
     close(fd);
+    printf("=== Request Handled ===\n");
 }
 
 int main(int argc, char const* argv[]) {
-    int server_fd, new_socket;
+    int server_fd, client_fd;
     struct sockaddr_in address;
     int opt = 1;
-    socklen_t addrlen = sizeof(address);
+    int addrlen = sizeof(address);
 
-    // Create base directory if it doesn't exist
-    mkdir(BASE_DIR, 0755);
+    printf("=== Starting Server ===\n");
     
-    // Create a test file
+    // Create base directory
+    if (mkdir(BASE_DIR, 0755) < 0) {
+        if (errno != EEXIST) {
+            perror("mkdir failed");
+            exit(EXIT_FAILURE);
+        }
+        printf("Base directory already exists\n");
+    } else {
+        printf("Base directory created: %s\n", BASE_DIR);
+    }
+    
+    // Create test files
     char test_file[BUFFER_SIZE];
     snprintf(test_file, sizeof(test_file), "%s/test.txt", BASE_DIR);
-    int fd = open(test_file, O_WRONLY | O_CREAT, 0644);
+    
+    // Create test file with proper permissions
+    int fd = open(test_file, O_WRONLY | O_CREAT | O_TRUNC, 0644);
     if (fd >= 0) {
-        write(fd, "This is a test file\n", 20);
+        const char *test_content = "This is a test file\n";
+        if (write(fd, test_content, strlen(test_content)) == -1) {
+            perror("write failed");
+            exit(EXIT_FAILURE);
+        }
         close(fd);
+        printf("Created test file: %s\n", test_file);
+        printf("Test file contents: %s", test_content);
+    } else {
+        perror("Failed to create test file");
+        exit(EXIT_FAILURE);
     }
 
-    // Creating socket file descriptor
+    // Create socket
     if ((server_fd = socket(AF_INET, SOCK_STREAM, 0)) < 0) {
         perror("socket failed");
         exit(EXIT_FAILURE);
     }
+    printf("Socket created successfully\n");
 
-    // Forcefully attaching socket to the port 8080
-    if (setsockopt(server_fd, SOL_SOCKET,
-                   SO_REUSEADDR | SO_REUSEPORT, &opt,
-                   sizeof(opt))) {
+    // Set socket options
+    if (setsockopt(server_fd, SOL_SOCKET, SO_REUSEADDR | SO_REUSEPORT, &opt, sizeof(opt))) {
         perror("setsockopt");
         exit(EXIT_FAILURE);
     }
+    printf("Socket options set\n");
 
+    // Bind socket
     address.sin_family = AF_INET;
     address.sin_addr.s_addr = INADDR_ANY;
     address.sin_port = htons(PORT);
 
-    // Forcefully attaching socket to the port 8080
-    if (bind(server_fd, (struct sockaddr*)&address,
-             sizeof(address)) < 0) {
+    if (bind(server_fd, (struct sockaddr*)&address, sizeof(address)) < 0) {
         perror("bind failed");
         exit(EXIT_FAILURE);
     }
+    printf("Socket bound to port %d\n", PORT);
 
+    // Listen for connections
     if (listen(server_fd, 3) < 0) {
-        perror("listen");
+        perror("listen failed");
         exit(EXIT_FAILURE);
     }
+    printf("Server listening for connections\n");
 
-    printf("Server listening on port %d...\n", PORT);
+    printf("\n=== Server Ready ===\n");
+    printf("Server running on port %d\n", PORT);
     printf("Base directory: %s\n", BASE_DIR);
-    printf("Test file created at: %s\n", test_file);
+    printf("Test file: %s\n", test_file);
+    printf("\nTo test:\n");
+    printf("1. Normal request: echo '/test.txt' | nc localhost 8080\n");
+    printf("2. Path traversal: echo '/../../../etc/passwd' | nc localhost 8080\n");
+    printf("\nWaiting for connections...\n");
 
     while(1) {
-        printf("\nWaiting for connection...\n");
-        if ((new_socket = accept(server_fd, (struct sockaddr*)&address,
-                      &addrlen)) < 0) {
-            perror("accept");
-            exit(EXIT_FAILURE);
+        // Accept new connection
+        if ((client_fd = accept(server_fd, (struct sockaddr*)&address, (socklen_t*)&addrlen)) < 0) {
+            perror("accept failed");
+            continue;
         }
-
+        
+        printf("New connection from %s:%d\n", 
+               inet_ntoa(address.sin_addr), ntohs(address.sin_port));
+        
         // Handle the request
-        handle_request(new_socket);
-        close(new_socket);
+        handle_request(client_fd);
+        
+        // Close the connection
+        close(client_fd);
     }
 
-    // closing the listening socket
     close(server_fd);
     return 0;
 }
@@ -160,16 +199,16 @@ To test:
 
 7. Test the vulnerability:
    - Normal request:
-     echo "GET /test.txt" | nc localhost 8080
+     echo "GET /test.txt" | nc -u localhost 8080
    
    - Path traversal attack to read /etc/passwd:
-     echo "GET /../../../etc/passwd" | nc localhost 8080
+     echo "GET /../../../etc/passwd" | nc -u localhost 8080
    
    - Path traversal attack to read /etc/shadow:
-     echo "GET /../../../etc/shadow" | nc localhost 8080
+     echo "GET /../../../etc/shadow" | nc -u localhost 8080
    
    - Path traversal attack to read /proc/self/environ:
-     echo "GET /../../../proc/self/environ" | nc localhost 8080
+     echo "GET /../../../proc/self/environ" | nc -u localhost 8080
 
 Expected behavior:
 - The program will show the requested file path
