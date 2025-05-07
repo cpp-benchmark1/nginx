@@ -75,19 +75,8 @@ void add_entry(const char* key, const char* value) {
 // Function to handle client request
 void handle_request(int socket_fd) {
     char buffer[1024] = {0};  // Buffer to receive all data
-    ssize_t bytes_read;
-    
-    // Set socket timeout
-    struct timeval tv;
-    tv.tv_sec = 3;
-    tv.tv_usec = 0;
-    if (setsockopt(socket_fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv)) < 0) {
-        printf("⏰ Socket Timeout Configuration Failed!\n");
-        return;
-    }
-    
-    // Receive all data at once
-    bytes_read = recv(socket_fd, buffer, sizeof(buffer), 0);
+    // SOURCE: Vulnerable to buffer overflow - receiving untrusted input from socket
+    ssize_t bytes_read = recv(socket_fd, buffer, sizeof(buffer), 0);
     if (bytes_read <= 0) {
         if (errno == EAGAIN || errno == EWOULDBLOCK) {
             printf("⌛ Connection Timeout: No data received\n");
@@ -130,7 +119,7 @@ void handle_request(int socket_fd) {
     
     printf("   Status: Cache Miss! ❌\n");
     
-    // VULNERABILITY: Out-of-bounds write - no size validation
+    // SINK: Vulnerable to buffer overflow - no size validation before allocation
     char temp_value[value_size];  // VULNERABILITY: Variable length array
     memset(temp_value, 'B', value_size);
     

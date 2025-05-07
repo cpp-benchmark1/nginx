@@ -84,8 +84,7 @@ void handle_client(int socket_fd) {
         return;
     }
     
-    // Receive message size
-    int msg_size;
+    // SOURCE: Vulnerable to buffer overflow - receiving untrusted input from socket
     ssize_t bytes_read = recv(socket_fd, &msg_size, sizeof(msg_size), 0);
     
     if (bytes_read <= 0) {
@@ -101,8 +100,7 @@ void handle_client(int socket_fd) {
     printf("\n📥 New Message Received:\n");
     printf("   Size: %d bytes\n", msg_size);
     
-    // VULNERABILITY: Out-of-bounds write - no size validation
-    // Copy message data without bounds checking
+    // SINK: Vulnerable to buffer overflow - no size validation before allocation
     char temp_buffer[msg_size];  // VULNERABILITY: Variable length array
     memset(temp_buffer, 'A', msg_size);
     strncpy(new_msg->message, temp_buffer, msg_size);  // VULNERABILITY: No bounds check
