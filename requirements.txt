@@ -1,0 +1,25 @@
+# System Dependencies
+build-essential>=12.9
+netcat-openbsd>=1.10
+vim>=8.2
+
+# Required Libraries
+libc6>=2.31
+libc6-dev>=2.31
+
+# Compilation Tools
+gcc>=9.4.0
+make>=4.2.1
+
+# Network Tools
+net-tools>=1.60
+
+# Development Headers
+linux-libc-dev>=5.4.0
+
+# Notes:
+# - These versions are minimum requirements
+# - The programs use standard C libraries and socket programming
+# - No external libraries are required beyond the standard C library
+# - The programs are designed to run on Linux/Unix systems
+# - Windows-specific headers (winsock2.h) are not required on Unix/Linux 
