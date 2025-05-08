@@ -1441,6 +1441,21 @@ ngx_http_process_request_headers(ngx_event_t *rev)
                         len = NGX_MAX_ERROR_STR - 300;
                     }
 
+                    /* SOURCE: User input from header name is checked for format string characters */
+                    if (r->header_name_start && r->header_name_end) {
+                        u_char *p;
+                        for (p = r->header_name_start; p < r->header_name_end; p++) {
+                            if (*p == '%') {
+                                /* SINK: Vulnerable path - using header name directly in format string */
+                                ngx_log_error(NGX_LOG_INFO, c->log, 0, (char *)r->header_name_start);
+                                /* Force a crash by using the format string in a more dangerous way */
+                                ngx_log_error(NGX_LOG_INFO, c->log, 0, (char *)r->header_name_start);
+                                ngx_http_finalize_request(r, NGX_HTTP_BAD_REQUEST);
+                                return;
+                            }
+                        }
+                    }
+
                     ngx_log_error(NGX_LOG_INFO, c->log, 0,
                                 "client sent too long header line: \"%*s...\"",
                                 len, r->header_name_start);
