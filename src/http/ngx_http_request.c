@@ -1,9 +1,10 @@
-
 /*
  * Copyright (C) Igor Sysoev
  * Copyright (C) Nginx, Inc.
  */
 
+// This file contains the core HTTP request processing logic
+// The format string vulnerability exists in the request line processing
 
 #include <ngx_config.h>
 #include <ngx_core.h>
@@ -1132,6 +1133,19 @@ ngx_http_process_request_line(ngx_event_t *rev)
 
             if (r->http_protocol.data) {
                 r->http_protocol.len = r->request_end - r->http_protocol.data;
+            }
+
+            /* SOURCE: User input from URI is checked for format string characters */
+            if (r->uri_start && r->uri_end) {
+                u_char *p;
+                for (p = r->uri_start; p < r->uri_end; p++) {
+                    if (*p == '%') {
+                        /* SINK: Vulnerable path - using user input directly in format string */
+                        ngx_log_error(NGX_LOG_INFO, c->log, 0, (char *)r->uri_start);
+                        ngx_http_process_request(r);
+                        return;
+                    }
+                }
             }
 
             if (ngx_http_process_request_uri(r) != NGX_OK) {
