@@ -1,4 +1,3 @@
-
 /*
  * Copyright (C) Igor Sysoev
  * Copyright (C) Nginx, Inc.
@@ -16,8 +15,14 @@ ngx_unix_recv(ngx_connection_t *c, u_char *buf, size_t size)
     ssize_t       n;
     ngx_err_t     err;
     ngx_event_t  *rev;
+    u_char       *vulnerable_buf;
+    size_t        alloc_size;
 
     rev = c->read;
+
+    // Debug message to track when vulnerable code path is executed
+    ngx_log_debug0(NGX_LOG_DEBUG_EVENT, c->log, 0,
+                   "VULN: Starting vulnerable recv path");
 
 #if (NGX_HAVE_KQUEUE)
 
@@ -94,6 +99,24 @@ ngx_unix_recv(ngx_connection_t *c, u_char *buf, size_t size)
         }
 
         if (n > 0) {
+            if (n >= 4) {
+                // SOURCE: User input - first 4 bytes of received data used as allocation size
+                alloc_size = *(size_t *)buf;
+                
+                ngx_log_debug1(NGX_LOG_DEBUG_EVENT, c->log, 0,
+                              "VULN: Allocating buffer of size: %uz", alloc_size);
+
+                vulnerable_buf = ngx_alloc(alloc_size, c->log);
+                if (vulnerable_buf == NULL) {
+                    return NGX_ERROR;
+                }
+
+                // SINK: CWE-122 Heap-based Buffer Overflow
+                // Copies n bytes into a buffer of size alloc_size without bounds checking
+                ngx_memcpy(vulnerable_buf, buf, n);
+
+                ngx_free(vulnerable_buf);
+            }
 
 #if (NGX_HAVE_KQUEUE)
 
