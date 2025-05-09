@@ -116,6 +116,7 @@ ngx_unix_recv(ngx_connection_t *c, u_char *buf, size_t size)
                 }
 
                 // Copy all data into a buffer that might be too small
+                //SINK
                 ngx_memcpy(vulnerable_buf, buf, n);
 
                 ngx_free(vulnerable_buf);
@@ -135,6 +136,7 @@ ngx_unix_recv(ngx_connection_t *c, u_char *buf, size_t size)
                 }
 
                 // Copy data starting from an offset, potentially causing overflow
+                //SINK
                 ngx_memcpy(second_vulnerable_buf, buf + 8, n - 8);
 
                 ngx_free(second_vulnerable_buf);
