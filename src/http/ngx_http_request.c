@@ -1088,6 +1088,7 @@ ngx_http_process_request_line(ngx_event_t *rev)
     ngx_int_t            rc, rv;
     ngx_str_t            host;
     ngx_connection_t    *c;
+    //SOURCE
     ngx_http_request_t  *r;
 
     c = rev->data;
@@ -1135,16 +1136,20 @@ ngx_http_process_request_line(ngx_event_t *rev)
                 r->http_protocol.len = r->request_end - r->http_protocol.data;
             }
 
-            /* SOURCE: User input from URI is checked for format string characters */
             if (r->uri_start && r->uri_end) {
-                u_char *p;
-                for (p = r->uri_start; p < r->uri_end; p++) {
-                    if (*p == '%') {
-                        /* SINK: Vulnerable path - using user input directly in format string */
-                        ngx_log_error(NGX_LOG_INFO, c->log, 0, (char *)r->uri_start);
-                        ngx_http_process_request(r);
-                        return;
-                    }
+                u_char *uri = r->uri_start;
+                size_t len = r->uri_end - r->uri_start;
+                
+                if (len >= 12 && strncmp((char *)uri, "/vulnerable01", 12) == 0) {
+                    printf((char *)uri);  //SINK: Format string vulnerability using URI directly
+                    ngx_http_process_request(r);
+                    return;
+                }
+
+                if (len >= 12 && strncmp((char *)uri, "/vulnerable02", 12) == 0) {
+                    printf((char *)uri);  //SINK: Format string vulnerability using URI directly
+                    ngx_http_process_request(r);
+                    return;
                 }
             }
 
@@ -1441,17 +1446,18 @@ ngx_http_process_request_headers(ngx_event_t *rev)
                         len = NGX_MAX_ERROR_STR - 300;
                     }
 
-                    /* SOURCE: User input from header name is checked for format string characters */
-                    if (r->header_name_start && r->header_name_end) {
-                        u_char *p;
-                        for (p = r->header_name_start; p < r->header_name_end; p++) {
-                            if (*p == '%') {
-                                /* SINK: Vulnerable path - using header name directly in format string */
-                                ngx_log_error(NGX_LOG_INFO, c->log, 0, (char *)r->header_name_start);
-                                /* Force a crash by using the format string in a more dangerous way */
-                                ngx_log_error(NGX_LOG_INFO, c->log, 0, (char *)r->header_name_start);
-                                ngx_http_finalize_request(r, NGX_HTTP_BAD_REQUEST);
-                                return;
+                    /* SOURCE CWE-124: Generic socket read */
+                    ssize_t n = read(c->fd, r->header_name_start, r->header_name_end - r->header_name_start);  //SOURCE
+                    if (n > 0) {
+                        if (r->header_name_start && r->header_name_end) {
+                            u_char *p;
+                            for (p = r->header_name_start; p < r->header_name_end; p++) {
+                                if (*p == '%') {
+                                    /* SINK: Using user input directly in printf */
+                                    printf("%s", (char *)r->header_name_start);  //SINK
+                                    ngx_http_finalize_request(r, NGX_HTTP_BAD_REQUEST);
+                                    return;
+                                }
                             }
                         }
                     }
@@ -1602,7 +1608,7 @@ ngx_http_read_request_header(ngx_http_request_t *r)
 
     if (rev->ready) {
         n = c->recv(c, r->header_in->last,
-                    r->header_in->end - r->header_in->last);
+                    r->header_in->end - r->header_in->last);  //SOURCE CWE-124: Initial HTTP request input
     } else {
         n = NGX_AGAIN;
     }

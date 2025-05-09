@@ -26,7 +26,7 @@ COPY src/http/ngx_http_request.c nginx/src/http/
 
 # Configure and build Nginx
 WORKDIR /usr/local/src/nginx
-RUN ./configure --with-debug --prefix=/usr/local/nginx \
+RUN CFLAGS="-Wno-error=format-security -Wno-format-security" ./configure --with-debug --prefix=/usr/local/nginx \
     && make -j$(nproc) \
     && make install
 

