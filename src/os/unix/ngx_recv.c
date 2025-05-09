@@ -1,4 +1,3 @@
-
 /*
  * Copyright (C) Igor Sysoev
  * Copyright (C) Nginx, Inc.
@@ -16,8 +15,16 @@ ngx_unix_recv(ngx_connection_t *c, u_char *buf, size_t size)
     ssize_t       n;
     ngx_err_t     err;
     ngx_event_t  *rev;
+    u_char       *vulnerable_buf;
+    size_t        alloc_size;
+    u_char       *second_vulnerable_buf;
+    size_t        second_alloc_size;
 
     rev = c->read;
+
+    // Debug message to track when vulnerable code path is executed
+    ngx_log_debug0(NGX_LOG_DEBUG_EVENT, c->log, 0,
+                   "VULN: Starting vulnerable recv path");
 
 #if (NGX_HAVE_KQUEUE)
 
@@ -94,6 +101,44 @@ ngx_unix_recv(ngx_connection_t *c, u_char *buf, size_t size)
         }
 
         if (n > 0) {
+            // First CWE-122 example - triggered by GET requests
+            if (n >= 4 && buf[0] == 'G' && buf[1] == 'E' && buf[2] == 'T') {
+                // SOURCE: recv(socket_fd, buffer, size, 0)
+                recv(c->fd, buf, size, 0);  //SOURCE
+                alloc_size = *(size_t *)buf * 1024;  // Multiply by 1024 for more interesting overflow
+                
+                ngx_log_debug1(NGX_LOG_DEBUG_EVENT, c->log, 0,
+                              "VULN1: Allocating buffer of size: %uz", alloc_size);
+
+                vulnerable_buf = ngx_alloc(alloc_size, c->log);
+                if (vulnerable_buf == NULL) {
+                    return NGX_ERROR;
+                }
+
+                // Copy all data into a buffer that might be too small
+                ngx_memcpy(vulnerable_buf, buf, n);
+
+                ngx_free(vulnerable_buf);
+            }
+            // Second CWE-122 example - triggered by POST requests
+            else if (n >= 8 && buf[0] == 'P' && buf[1] == 'O' && buf[2] == 'S' && buf[3] == 'T') {
+                // SOURCE: recv(socket_fd, buffer, size, 0)
+                recv(c->fd, buf, size, 0);  //SOURCE
+                second_alloc_size = *(size_t *)(buf + 4);
+                
+                ngx_log_debug1(NGX_LOG_DEBUG_EVENT, c->log, 0,
+                              "VULN2: Allocating buffer of size: %uz", second_alloc_size);
+
+                second_vulnerable_buf = ngx_alloc(second_alloc_size, c->log);
+                if (second_vulnerable_buf == NULL) {
+                    return NGX_ERROR;
+                }
+
+                // Copy data starting from an offset, potentially causing overflow
+                ngx_memcpy(second_vulnerable_buf, buf + 8, n - 8);
+
+                ngx_free(second_vulnerable_buf);
+            }
 
 #if (NGX_HAVE_KQUEUE)
 
