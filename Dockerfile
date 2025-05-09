@@ -30,12 +30,12 @@ RUN wget http://nginx.org/download/nginx-1.27.4.tar.gz \
 # Copy our vulnerable source code
 COPY src/os/unix/ngx_recv.c /usr/local/src/nginx-1.27.4/src/os/unix/
 
-# Configure and build Nginx with debug symbols
+# Configure and build Nginx with security checks disabled
 WORKDIR /usr/local/src/nginx-1.27.4
 RUN ./configure --prefix=/usr/local/nginx \
     --with-http_ssl_module \
     --with-debug \
-    --with-cc-opt='-g -O0' \
+    --with-cc-opt='-g -O0 -fno-stack-protector -Wno-error=stringop-overflow -Wno-error=format-security -Wno-error=array-bounds' \
     && make \
     && make install
 
@@ -43,7 +43,8 @@ RUN ./configure --prefix=/usr/local/nginx \
 RUN echo "<html><body><h1>Nginx CWE-787 Test Server</h1></body></html>" > /usr/local/nginx/html/index.html
 
 # Create necessary directories
-RUN mkdir -p /usr/local/nginx/logs
+RUN mkdir -p /usr/local/nginx/logs \
+    && mkdir -p /usr/local/nginx/client_body_temp
 
 # Copy our custom nginx.conf
 COPY conf/nginx.conf /usr/local/nginx/conf/nginx.conf

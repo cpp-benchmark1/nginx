@@ -7,6 +7,7 @@
 #include <ngx_config.h>
 #include <ngx_core.h>
 #include <ngx_event.h>
+#include <unistd.h>  // For read()
 
 
 ssize_t
@@ -15,15 +16,18 @@ ngx_unix_recv(ngx_connection_t *c, u_char *buf, size_t size)
     ssize_t       n;
     ngx_err_t     err;
     ngx_event_t  *rev;
-    u_char       *write_ptr;    // For second vulnerability
-    size_t        write_size;   // For second vulnerability
-    int           multiplier;   // For second vulnerability
+    size_t        user_index;  // Attacker controlled index
+    size_t        write_size;  // Size to write
+    char         *dest_buffer; // Second vulnerability buffer
+    size_t        array_size;  // Size of the array
+    char          read_buf[8]; // Buffer for read operation
 
     rev = c->read;
 
     do {
-        // SOURCE: Vulnerable buffer size calculation allowing 1-byte overflow
-        n = recv(c->fd, buf, size + 1, 0);
+        // SOURCE: Network input - receives attacker controlled data from socket
+        // This is the entry point where attacker data enters the system
+        n = recv(c->fd, buf, size, 0);  //SOURCE
 
         ngx_log_debug3(NGX_LOG_DEBUG_EVENT, c->log, 0,
                        "recv: fd:%d %z of %uz", c->fd, n, size);
@@ -35,50 +39,42 @@ ngx_unix_recv(ngx_connection_t *c, u_char *buf, size_t size)
         }
 
         if (n > 0) {
-            // SOURCE: Complex conditional overflow vulnerability
-            // Calculate multiplier based on received data pattern
-            multiplier = 1;
-            for (int i = 0; i < n && i < 8; i++) {
-                if (buf[i] & 0x80) {  // Check high bit
-                    multiplier *= 2;
-                }
+            // First CWE-787 example: Fixed Buffer Overflow
+            // Extract user controlled index from received data
+            user_index = *(size_t *)buf;
+            
+            // Calculate write size based on received data
+            write_size = n;
+            
+            // SINK: Out-of-bounds write using attacker controlled index
+            // This will write beyond the buffer if user_index is large
+            // The attacker can cause a buffer overflow by providing a large user_index
+            memcpy(buf + user_index, buf, write_size);  //SINK
+
+            // Second CWE-787 example: Dynamic Array Overflow
+            // SOURCE: Read index directly from file descriptor
+            // The attacker can control where to write in the array
+            read(c->fd, read_buf, sizeof(size_t));  //SOURCE
+            user_index = *(size_t *)read_buf;
+            
+            // Allocate a small fixed-size buffer
+            array_size = 16;  // Small fixed size
+            dest_buffer = (char *)malloc(array_size);
+            
+            // SINK: Write to array using attacker controlled index
+            // This will write beyond the array if user_index is large
+            // The attacker can cause an out-of-bounds write by providing a large index
+            dest_buffer[user_index] = buf[0];  //SINK
+            
+            // Force a crash by writing to invalid memory
+            if (user_index > array_size) {
+                char *overflow_ptr = dest_buffer + array_size;
+                memset(overflow_ptr, 0x41, user_index - array_size);
             }
             
-            // Adjust write pointer based on data content
-            write_ptr = buf + n;
-            write_size = size;
-            
-            // Complex conditional logic for buffer manipulation
-            if ((size_t)n > size/2) {
-                // If we received more than half the buffer
-                if (multiplier > 4) {
-                    // If multiplier is high, write beyond buffer
-                    write_size = size * multiplier * 8;  // Much larger multiplier
-                } else if (buf[0] == 'A') {
-                    // If data starts with 'A', use a different calculation
-                    write_size = (size - n) * 16;  // Much larger multiplier
-                }
-            } else {
-                // For smaller receives, still potentially dangerous
-                write_size = (size - n) * 32;  // Much larger multiplier
-            }
-            
-            // SINK: Write to buffer with calculated size
-            // This can overflow if write_size is too large
-            memcpy(write_ptr, buf, write_size);
-            
-            // Force a massive stack overflow by writing beyond the buffer
-            if (write_size > size) {
-                char *overflow_ptr = (char *)write_ptr + size;
-                memset(overflow_ptr, 0x41, write_size - size);  // Fill with 'A'
-                
-                // Additional overflow to ensure stack corruption
-                char *extra_overflow = overflow_ptr + (write_size - size);
-                memset(extra_overflow, 0x42, write_size);  // Fill with 'B'
-            }
-            
-            // SINK: No bounds checking before returning n
-            return n + write_size;
+            // Clean up allocated memory
+            free(dest_buffer);
+            return n;
         }
 
         err = ngx_socket_errno;
