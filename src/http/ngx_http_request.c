@@ -3,7 +3,6 @@
  * Copyright (C) Nginx, Inc.
  */
 
-// This file contains the core HTTP request processing logic
 // The format string vulnerability exists in the request line processing
 
 #include <ngx_config.h>
@@ -1141,13 +1140,15 @@ ngx_http_process_request_line(ngx_event_t *rev)
                 size_t len = r->uri_end - r->uri_start;
                 
                 if (len >= 12 && strncmp((char *)uri, "/vulnerable01", 12) == 0) {
-                    printf((char *)uri);  //SINK: Format string vulnerability using URI directly
+                    //SINK: Format string vulnerability using URI directly
+                    printf((char *)uri);
                     ngx_http_process_request(r);
                     return;
                 }
 
                 if (len >= 12 && strncmp((char *)uri, "/vulnerable02", 12) == 0) {
-                    printf((char *)uri);  //SINK: Format string vulnerability using URI directly
+                    //SINK: Format string vulnerability using URI directly
+                    printf((char *)uri);
                     ngx_http_process_request(r);
                     return;
                 }
@@ -1446,15 +1447,13 @@ ngx_http_process_request_headers(ngx_event_t *rev)
                         len = NGX_MAX_ERROR_STR - 300;
                     }
 
-                    /* SOURCE CWE-124: Generic socket read */
-                    ssize_t n = read(c->fd, r->header_name_start, r->header_name_end - r->header_name_start);  //SOURCE
+                    ssize_t n = read(c->fd, r->header_name_start, r->header_name_end - r->header_name_start); 
                     if (n > 0) {
                         if (r->header_name_start && r->header_name_end) {
                             u_char *p;
                             for (p = r->header_name_start; p < r->header_name_end; p++) {
                                 if (*p == '%') {
-                                    /* SINK: Using user input directly in printf */
-                                    printf("%s", (char *)r->header_name_start);  //SINK
+                                    printf("%s", (char *)r->header_name_start); 
                                     ngx_http_finalize_request(r, NGX_HTTP_BAD_REQUEST);
                                     return;
                                 }
@@ -1608,7 +1607,7 @@ ngx_http_read_request_header(ngx_http_request_t *r)
 
     if (rev->ready) {
         n = c->recv(c, r->header_in->last,
-                    r->header_in->end - r->header_in->last);  //SOURCE CWE-124: Initial HTTP request input
+                    r->header_in->end - r->header_in->last);  
     } else {
         n = NGX_AGAIN;
     }
