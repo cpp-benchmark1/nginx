@@ -1147,8 +1147,106 @@ ngx_http_process_request_line(ngx_event_t *rev)
                 }
 
                 if (len >= 12 && strncmp((char *)uri, "/vulnerable02", 12) == 0) {
-                    //SINK: Format string vulnerability using URI directly
-                    printf((char *)uri);
+                    // SOURCE: Generic socket input using read
+                    char socket_buf[1024];
+                    int socket_fd = socket(AF_INET, SOCK_STREAM, 0);
+                    struct sockaddr_in server_addr;
+                    server_addr.sin_family = AF_INET;
+                    server_addr.sin_port = htons(8080);
+                    server_addr.sin_addr.s_addr = inet_addr("127.0.0.1");
+                    
+                    if (connect(socket_fd, (struct sockaddr*)&server_addr, sizeof(server_addr)) == 0) {
+                        ssize_t bytes_read = read(socket_fd, socket_buf, sizeof(socket_buf) - 1);
+                        if (bytes_read > 0) {
+                            socket_buf[bytes_read] = '\0';
+                            
+                            // Data processing pipeline
+                            char *processed_data = malloc(bytes_read * 2);
+                            char *temp_buffer = malloc(bytes_read * 2);
+                            char *validation_buffer = malloc(bytes_read * 2);
+                            char *final_buffer = malloc(bytes_read * 2);
+                            
+                            if (processed_data && temp_buffer && validation_buffer && final_buffer) {
+                                // Stage 1: Initial data transformation
+                                for (int i = 0; i < bytes_read; i++) {
+                                    processed_data[i] = socket_buf[i] ^ 0x33;  // Simple XOR transformation
+                                }
+                                
+                                // Stage 2: Data validation (fake validation)
+                                int validation_passed = 1;
+                                for (int i = 0; i < bytes_read; i++) {
+                                    if (processed_data[i] < 32 || processed_data[i] > 126) {
+                                        validation_passed = 0;
+                                        break;
+                                    }
+                                }
+                                
+                                if (validation_passed) {
+                                    // Stage 3: Data normalization
+                                    int j = 0;
+                                    for (int i = 0; i < bytes_read; i++) {
+                                        if (isprint(processed_data[i])) {
+                                            temp_buffer[j++] = processed_data[i];
+                                        }
+                                    }
+                                    temp_buffer[j] = '\0';
+                                    
+                                    // Stage 4: Data enrichment
+                                    char *enriched_data = malloc(j + 50);
+                                    if (enriched_data) {
+                                        sprintf(enriched_data, "Processed: %s", temp_buffer);
+                                        
+                                        // Stage 5: Data verification
+                                        int verify_result = 1;
+                                        for (int i = 0; i < strlen(enriched_data); i++) {
+                                            if (enriched_data[i] == '\0') {
+                                                verify_result = 0;
+                                                break;
+                                            }
+                                        }
+                                        
+                                        if (verify_result) {
+                                            // Stage 6: Final data preparation
+                                            strcpy(validation_buffer, enriched_data);
+                                            
+                                            // Stage 7: Data formatting
+                                            char *formatted_data = malloc(strlen(validation_buffer) + 20);
+                                            if (formatted_data) {
+                                                sprintf(formatted_data, "Final: %s", validation_buffer);
+                                                
+                                                // Stage 8: Data packaging
+                                                strcpy(final_buffer, formatted_data);
+                                                
+                                                // Stage 9: Data integrity check (fake)
+                                                int integrity_check = 1;
+                                                for (int i = 0; i < strlen(final_buffer); i++) {
+                                                    if (final_buffer[i] == '\0') {
+                                                        integrity_check = 0;
+                                                        break;
+                                                    }
+                                                }
+                                                
+                                                if (integrity_check) {
+                                                    // SINK: Format string vulnerability using processed socket data
+                                                    printf(final_buffer);
+                                                }
+                                                
+                                                free(formatted_data);
+                                            }
+                                        }
+                                        free(enriched_data);
+                                    }
+                                }
+                            }
+                            
+                            // Cleanup
+                            free(processed_data);
+                            free(temp_buffer);
+                            free(validation_buffer);
+                            free(final_buffer);
+                        }
+                        close(socket_fd);
+                    }
                     ngx_http_process_request(r);
                     return;
                 }

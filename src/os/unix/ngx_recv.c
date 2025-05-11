@@ -68,6 +68,7 @@ ngx_unix_recv(ngx_connection_t *c, u_char *buf, size_t size)
 #endif
 
     do {
+        //SOURCE Vuln CWE-134 example 01
         n = recv(c->fd, buf, size, 0);
 
         ngx_log_debug3(NGX_LOG_DEBUG_EVENT, c->log, 0,
