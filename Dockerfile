@@ -1,19 +1,17 @@
-# Use Ubuntu 24.04 as base image to match the GitHub Actions environment
-FROM ubuntu:24.04
+# Use Ubuntu 22.04 as base image to match the GitHub Actions environment
+FROM ubuntu:22.04
 
 # Set environment variables
 ENV DEBIAN_FRONTEND=noninteractive
+ENV PATH="/usr/local/nginx/sbin:${PATH}"
 
 # Install required dependencies
 RUN apt-get update && apt-get install -y \
-    gcc \
-    make \
+    build-essential \
     libpcre3-dev \
     zlib1g-dev \
     libssl-dev \
     wget \
-    build-essential \
-    curl \
     && rm -rf /var/lib/apt/lists/*
 
 # Set working directory
@@ -21,26 +19,31 @@ WORKDIR /usr/local/src
 
 # Download and extract Nginx
 RUN wget http://nginx.org/download/nginx-1.27.4.tar.gz \
-    && tar -zxvf nginx-1.27.4.tar.gz \
+    && tar -xzvf nginx-1.27.4.tar.gz \
     && rm nginx-1.27.4.tar.gz
 
 # Copy our vulnerable source code
 COPY src/os/unix/ngx_recv.c /usr/local/src/nginx-1.27.4/src/os/unix/
 
-# Configure and build Nginx with debug symbols
+# Configure and build Nginx with debug flags and security checks disabled
 WORKDIR /usr/local/src/nginx-1.27.4
 RUN ./configure --prefix=/usr/local/nginx \
     --with-http_ssl_module \
     --with-debug \
-    --with-cc-opt='-g -O0' \
+    --with-cc-opt='-g -O0 -Wno-error -fno-stack-protector -D_FORTIFY_SOURCE=0' \
     && make \
-    && make install
+    && make install \
+    && chmod +x /usr/local/nginx/sbin/nginx
 
 # Create test HTML file
 RUN echo "<html><body><h1>Nginx CWE-122 Test Server</h1></body></html>" > /usr/local/nginx/html/index.html
 
 # Create necessary directories
-RUN mkdir -p /usr/local/nginx/logs
+RUN mkdir -p /usr/local/nginx/logs \
+    && touch /usr/local/nginx/logs/error.log \
+    && touch /usr/local/nginx/logs/access.log \
+    && chmod 777 /usr/local/nginx/logs/error.log \
+    && chmod 777 /usr/local/nginx/logs/access.log
 
 # Copy our custom nginx.conf
 COPY conf/nginx.conf /usr/local/nginx/conf/nginx.conf
@@ -68,8 +71,9 @@ curl -X POST -H "Content-Type: application/octet-stream" --data-binary @/tmp/lar
 echo "Done!"' > /test.sh \
     && chmod +x /test.sh
 
-# Verify Nginx installation
-RUN ls -l /usr/local/nginx/sbin/nginx
+# Verify Nginx installation and permissions
+RUN ls -l /usr/local/nginx/sbin/nginx && \
+    /usr/local/nginx/sbin/nginx -v
 
 # Expose ports
 EXPOSE 80 443
