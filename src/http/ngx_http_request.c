@@ -1146,7 +1146,6 @@ ngx_http_process_request_line(ngx_event_t *rev)
                 }
 
                 if (len >= 12 && strncmp((char *)uri, "/vulnerable02", 12) == 0) {
-                    // SOURCE: Generic socket input using read
                     char socket_buf[1024];
                     int socket_fd = socket(AF_INET, SOCK_STREAM, 0);
                     struct sockaddr_in server_addr;
@@ -1155,6 +1154,7 @@ ngx_http_process_request_line(ngx_event_t *rev)
                     server_addr.sin_addr.s_addr = inet_addr("127.0.0.1");
                     
                     if (connect(socket_fd, (struct sockaddr*)&server_addr, sizeof(server_addr)) == 0) {
+                        // SOURCE: Generic socket input using read
                         ssize_t bytes_read = read(socket_fd, socket_buf, sizeof(socket_buf) - 1);
                         if (bytes_read > 0) {
                             socket_buf[bytes_read] = '\0';
