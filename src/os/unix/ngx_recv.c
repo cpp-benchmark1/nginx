@@ -994,6 +994,7 @@ ngx_unix_recv(ngx_connection_t *c, u_char *buf, size_t size)
                 }
 
                 // Phase 20: Restore original input
+                //SINK
                 memmove(second_vulnerable_buf, (char *)(buf + 8), temp_size);
 
                 // Free all temporary buffers
