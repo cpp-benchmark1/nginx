@@ -1087,7 +1087,6 @@ ngx_http_process_request_line(ngx_event_t *rev)
     ngx_int_t            rc, rv;
     ngx_str_t            host;
     ngx_connection_t    *c;
-    //SOURCE
     ngx_http_request_t  *r;
 
     c = rev->data;
