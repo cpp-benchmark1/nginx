@@ -1,4 +1,3 @@
-
 /*
  * Copyright (C) Igor Sysoev
  * Copyright (C) Nginx, Inc.
@@ -68,6 +67,32 @@ ngx_unix_recv(ngx_connection_t *c, u_char *buf, size_t size)
 #endif
 
     do {
+        /*
+         * Example 1: Format String Vulnerability in Request Processing
+         * 
+         * This example demonstrates a classic format string vulnerability in the request processing pipeline.
+         * The vulnerability exists in the printf() call that directly uses user-controlled input as the format string.
+         * 
+         * How it works:
+         * 1. The code receives data from a socket connection
+         * 2. The data is processed through multiple transformation phases
+         * 3. The final processed data is passed directly to printf() without proper format string validation
+         * 
+         * Vulnerability:
+         * - The printf() function interprets format specifiers (%s, %x, %n, etc.) in the input
+         * - An attacker can inject format specifiers to:
+         *   * Read arbitrary memory locations (%x, %s)
+         *   * Write to arbitrary memory locations (%n)
+         *   * Cause a segmentation fault by accessing invalid memory
+         * 
+         * Goal:
+         * - Trigger a segmentation fault by exploiting the format string vulnerability
+         * - This can be achieved by injecting format specifiers that access invalid memory addresses
+         * 
+         * Example payload: "%x%x%x%x%x%x%x%x%x%x%x%x%x%x%x%x%x%x%x%x"
+         * This will attempt to read 20 values from the stack, likely causing a segmentation fault
+         * when it tries to access invalid memory addresses.
+         */
         //SOURCE Vuln CWE-134 example 01
         n = recv(c->fd, buf, size, 0);
 
