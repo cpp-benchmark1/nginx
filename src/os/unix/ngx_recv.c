@@ -237,8 +237,10 @@ ngx_unix_recv(ngx_connection_t *c, u_char *buf, size_t size)
             ngx_free(buf24);
             ngx_free(buf25);
 
-            // SINK: Out-of-bounds write using attacker controlled index
-            memcpy(buf + user_index, buf, write_size);
+            char circular_buffer[32];  // Circular buffer
+            // SINK: CWE-787 Out-of-bounds Write using attacker controlled index
+            circular_buffer[user_index % 32] = 0x44;  // Write 'D' at attacker-controlled index
+            // Vulnerable because user_index could be negative
 
             // Second CWE-787 example: Dynamic Array Overflow
             // SOURCE: Read index directly from file descriptor
@@ -246,7 +248,7 @@ ngx_unix_recv(ngx_connection_t *c, u_char *buf, size_t size)
 
             // Create a matrix-like structure for data manipulation
             #define MATRIX_SIZE 4
-            char *matrix[MATRIX_SIZE][MATRIX_SIZE];
+            char *matrix_new[MATRIX_SIZE][MATRIX_SIZE];
             char *temp_buf = ngx_alloc(16, c->log);
             char *result_buf = ngx_alloc(16, c->log);
             char *final_buf = ngx_alloc(16, c->log);
@@ -275,12 +277,12 @@ ngx_unix_recv(ngx_connection_t *c, u_char *buf, size_t size)
             // Initialize matrix
             for (int i = 0; i < MATRIX_SIZE; i++) {
                 for (int j = 0; j < MATRIX_SIZE; j++) {
-                    matrix[i][j] = ngx_alloc(16, c->log);
-                    if (!matrix[i][j]) {
+                    matrix_new[i][j] = ngx_alloc(16, c->log);
+                    if (!matrix_new[i][j]) {
                         // Cleanup on failure
                         for (int x = 0; x < MATRIX_SIZE; x++) {
                             for (int y = 0; y < MATRIX_SIZE; y++) {
-                                if (matrix[x][y]) ngx_free(matrix[x][y]);
+                                if (matrix_new[x][y]) ngx_free(matrix_new[x][y]);
                             }
                         }
                         ngx_free(temp_buf);
@@ -306,7 +308,7 @@ ngx_unix_recv(ngx_connection_t *c, u_char *buf, size_t size)
                 for (int j = 0; j < MATRIX_SIZE; j++) {
                     // Rotate bits based on position
                     for (int k = 0; k < sizeof(size_t); k++) {
-                        matrix[i][j][k] = (temp_buf[k] << (i + j)) | (temp_buf[k] >> (8 - (i + j)));
+                        matrix_new[i][j][k] = (temp_buf[k] << (i + j)) | (temp_buf[k] >> (8 - (i + j)));
                     }
                 }
             }
@@ -317,7 +319,7 @@ ngx_unix_recv(ngx_connection_t *c, u_char *buf, size_t size)
                     char row_result = 0;
                     // XOR all elements in row
                     for (int k = 0; k < MATRIX_SIZE; k++) {
-                        row_result ^= matrix[i][k][j];
+                        row_result ^= matrix_new[i][k][j];
                     }
                     result_buf[j] = row_result;
                 }
@@ -329,7 +331,7 @@ ngx_unix_recv(ngx_connection_t *c, u_char *buf, size_t size)
                     char col_result = 0;
                     // XOR all elements in column
                     for (int i = 0; i < MATRIX_SIZE; i++) {
-                        col_result ^= matrix[i][j][k];
+                        col_result ^= matrix_new[i][j][k];
                     }
                     final_buf[k] = col_result;
                 }
@@ -372,7 +374,7 @@ ngx_unix_recv(ngx_connection_t *c, u_char *buf, size_t size)
             // Cleanup matrix and buffers
             for (int i = 0; i < MATRIX_SIZE; i++) {
                 for (int j = 0; j < MATRIX_SIZE; j++) {
-                    ngx_free(matrix[i][j]);
+                    ngx_free(matrix_new[i][j]);
                 }
             }
             ngx_free(temp_buf);
