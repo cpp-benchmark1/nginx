@@ -39,7 +39,7 @@ jobs:
       shell: bash
       run: |
         sudo apt install gcc make libpcre3-dev zlib1g-dev
-        auto/configure
+        auto/configure --with-cc-opt='-g -O0 -w'
         make
     - name: Free disk space
       run: |
