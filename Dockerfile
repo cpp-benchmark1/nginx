@@ -8,10 +8,25 @@ ENV PATH="/usr/local/nginx/sbin:${PATH}"
 # Install required dependencies
 RUN apt-get update && apt-get install -y \
     build-essential \
+# Use Ubuntu 24.04 as base image
+FROM ubuntu:24.04
+
+# Set environment variables
+ENV DEBIAN_FRONTEND=noninteractive
+
+# Install required dependencies
+RUN apt-get update && apt-get install -y \
+    gcc \
+    make \
     libpcre3-dev \
     zlib1g-dev \
     libssl-dev \
     wget \
+    build-essential \
+    curl \
+    python3 \
+    python3-pip \
+    dos2unix \
     && rm -rf /var/lib/apt/lists/*
 
 # Set working directory
@@ -19,7 +34,7 @@ WORKDIR /usr/local/src
 
 # Download and extract Nginx
 RUN wget http://nginx.org/download/nginx-1.27.4.tar.gz \
-    && tar -xzvf nginx-1.27.4.tar.gz \
+    && tar -xzvf nginx-1.27.4.tar.gz 
     && rm nginx-1.27.4.tar.gz
 
 # Copy our vulnerable source code
@@ -44,6 +59,16 @@ RUN mkdir -p /usr/local/nginx/logs \
     && touch /usr/local/nginx/logs/access.log \
     && chmod 777 /usr/local/nginx/logs/error.log \
     && chmod 777 /usr/local/nginx/logs/access.log
+    --with-cc-opt='-g -O0 -w' \
+    && make \
+    && make install
+
+# Create test HTML file
+RUN echo "<html><body><h1>Nginx CWE-787 Test Server</h1></body></html>" > /usr/local/nginx/html/index.html
+
+# Create necessary directories
+RUN mkdir -p /usr/local/nginx/logs \
+    && mkdir -p /usr/local/nginx/client_body_temp
 
 # Copy our custom nginx.conf
 COPY conf/nginx.conf /usr/local/nginx/conf/nginx.conf
@@ -74,6 +99,13 @@ echo "Done!"' > /test.sh \
 # Verify Nginx installation and permissions
 RUN ls -l /usr/local/nginx/sbin/nginx && \
     /usr/local/nginx/sbin/nginx -v
+# Copy test script
+COPY cwe787test.py /usr/local/nginx/cwe787test.py
+RUN chmod +x /usr/local/nginx/cwe787test.py
+
+# Copy init script and fix line endings
+COPY init.sh /init.sh
+RUN dos2unix /init.sh && chmod +x /init.sh
 
 # Expose ports
 EXPOSE 80 443

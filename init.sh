@@ -24,4 +24,7 @@ echo "Testing nginx configuration..."
 
 # Start nginx in foreground mode with debug output
 echo "Starting nginx..."
-exec /usr/local/nginx/sbin/nginx -g 'daemon off;' -e /dev/stderr  
+exec /usr/local/nginx/sbin/nginx -g 'daemon off;' -e /dev/stderr
+
+# Keep container running
+tail -f /usr/local/nginx/logs/error.log

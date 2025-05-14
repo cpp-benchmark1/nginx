@@ -8,12 +8,17 @@ python3>=3.8
 libc6>=2.31
 libc6-dev>=2.31
 
+# Compilation Tools
+gcc>=9.4.0
+make>=4.2.1
 # Development Headers
 linux-libc-dev>=5.4.0
 
 # Network Tools
 net-tools>=1.60
 
+# Development Headers
+linux-libc-dev>=5.4.0
 # System Headers
 syslog.h
 signal.h
@@ -46,6 +51,9 @@ make>=4.2.1
 # - The programs are designed to run on Linux/Unix systems
 # - Windows-specific headers (winsock2.h) are not required on Unix/Linux
 # - Python3 is included for testing with the provided Python scripts
+# - No external libraries are required beyond the standard C library
+# - The programs are designed to run on Linux/Unix systems
+# - Windows-specific headers (winsock2.h) are not required on Unix/Linux 
 # - Required for both CWE-78 examples (Command Injection)
 # - Includes all necessary headers for:
 #   - Socket programming
