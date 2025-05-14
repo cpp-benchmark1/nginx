@@ -1,4 +1,4 @@
- # System Dependencies
+# System Dependencies
 build-essential>=12.9
 netcat-openbsd>=1.10
 vim>=8.2
@@ -7,12 +7,17 @@ vim>=8.2
 libc6>=2.31
 libc6-dev>=2.31
 
+# Compilation Tools
+gcc>=9.4.0
+make>=4.2.1
 # Development Headers
 linux-libc-dev>=5.4.0
 
 # Network Tools
 net-tools>=1.60
 
+# Development Headers
+linux-libc-dev>=5.4.0
 # System Headers
 syslog.h
 signal.h
@@ -37,6 +42,9 @@ make>=4.2.1
 # Notes:
 # - These versions are minimum requirements
 # - The programs use standard C libraries and socket programming
+# - No external libraries are required beyond the standard C library
+# - The programs are designed to run on Linux/Unix systems
+# - Windows-specific headers (winsock2.h) are not required on Unix/Linux 
 # - Required for both CWE-78 examples (Command Injection)
 # - Includes all necessary headers for:
 #   - Socket programming
