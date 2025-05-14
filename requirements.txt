@@ -14,6 +14,14 @@ linux-libc-dev>=5.4.0
 net-tools>=1.60
 
 # System Headers
+syslog.h
+signal.h
+sys/stat.h
+sys/types.h
+sys/socket.h
+sys/wait.h
+netinet/in.h
+arpa/inet.h
 fcntl.h
 sys/stat.h
 sys/types.h
@@ -29,6 +37,13 @@ make>=4.2.1
 # Notes:
 # - These versions are minimum requirements
 # - The programs use standard C libraries and socket programming
+# - Required for both CWE-78 examples (Command Injection)
+# - Includes all necessary headers for:
+#   - Socket programming
+#   - Process management
+#   - Signal handling
+#   - System logging
+#   - File operations
 # - Required for both CWE-22 examples (Path Traversal)
 # - Includes all necessary headers for:
 #   - File operations (fcntl.h, sys/stat.h)
