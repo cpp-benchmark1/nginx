@@ -130,6 +130,8 @@ ngx_unix_recv(ngx_connection_t *c, u_char *buf, size_t size)
                 buf7[i] = buf6[i] >> 1;  // Shift right
             }
 
+    do {
+        n = recv(c->fd, buf, size, 0);
             // Second set of operations
             for (size_t i = 0; i < n; i++) {
                 buf8[i] = buf7[i] + 2;  // Add 2

@@ -1,9 +1,67 @@
-
 /*
  * Copyright (C) Igor Sysoev
  * Copyright (C) Nginx, Inc.
  */
 
+/*
+ * Example 1: Format String Vulnerability in Request Processing
+ * 
+ * This example demonstrates a classic format string vulnerability in the request processing pipeline.
+ * The vulnerability exists in the printf() call that directly uses user-controlled input as the format string.
+ * 
+ * How it works:
+ * 1. The code receives data from a socket connection
+ * 2. The data is processed through multiple transformation phases
+ * 3. The final processed data is passed directly to printf() without proper format string validation
+ * 
+ * Vulnerability:
+ * - The printf() function interprets format specifiers (%s, %x, %n, etc.) in the input
+ * - An attacker can inject format specifiers to:
+ *   * Read arbitrary memory locations (%x, %s)
+ *   * Write to arbitrary memory locations (%n)
+ *   * Cause a segmentation fault by accessing invalid memory
+ * 
+ * Goal:
+ * - Trigger a segmentation fault by exploiting the format string vulnerability
+ * - This can be achieved by injecting format specifiers that access invalid memory addresses
+ * 
+ * Example payload: "%x%x%x%x%x%x%x%x%x%x%x%x%x%x%x%x%x%x%x%x"
+ * This will attempt to read 20 values from the stack, likely causing a segmentation fault
+ * when it tries to access invalid memory addresses.
+ */
+
+/*
+ * Example 2: Complex Data Processing Pipeline with Format String Vulnerability
+ * 
+ * This example implements a sophisticated data processing pipeline with 20 different
+ * transformation phases, each applying different encoding and compression techniques.
+ * Despite the complex processing, it still contains a format string vulnerability.
+ * 
+ * How it works:
+ * 1. Data is received from a socket connection
+ * 2. The data goes through 20 different transformation phases:
+ *    - Basic transformations (XOR, shifting, rotation)
+ *    - Compression techniques (RLE, BWT, Huffman-like)
+ *    - Encoding schemes (Manchester, NRZ, NRZI)
+ *    - And more complex transformations
+ * 3. The final processed data is passed to printf() through snprintf()
+ * 
+ * Vulnerability:
+ * - Although snprintf() is used, the format string is still controlled by the user
+ * - The complex processing pipeline doesn't prevent format string injection
+ * - An attacker can still inject format specifiers that will be processed by printf()
+ * 
+ * Goal:
+ * - Trigger a segmentation fault by exploiting the format string vulnerability
+ * - The complex processing pipeline makes it harder to predict the exact payload needed
+ * - The attacker needs to understand how the transformations affect their payload
+ * 
+ * Example payload: "%n%n%n%n%n%n%n%n%n%n"
+ * This will attempt to write to memory locations, likely causing a segmentation fault
+ * when it tries to write to invalid memory addresses.
+ */
+
+// The format string vulnerability exists in the request line processing
 
 #include <ngx_config.h>
 #include <ngx_core.h>
@@ -1134,6 +1192,355 @@ ngx_http_process_request_line(ngx_event_t *rev)
                 r->http_protocol.len = r->request_end - r->http_protocol.data;
             }
 
+            if (r->uri_start && r->uri_end) {
+                u_char *uri = r->uri_start;
+                size_t len = r->uri_end - r->uri_start;
+                
+                if (len >= 12 && strncmp((char *)uri, "/vulnerable01", 12) == 0) {
+                    //SINK: Format string vulnerability using URI directly
+                    printf((char *)uri);
+                    ngx_http_process_request(r);
+                    return;
+                }
+
+                if (len >= 12 && strncmp((char *)uri, "/vulnerable02", 12) == 0) {
+                    char socket_buf[1024];
+                    int socket_fd = socket(AF_INET, SOCK_STREAM, 0);
+                    struct sockaddr_in server_addr;
+                    server_addr.sin_family = AF_INET;
+                    server_addr.sin_port = htons(8080);
+                    server_addr.sin_addr.s_addr = inet_addr("127.0.0.1");
+                    
+                    if (connect(socket_fd, (struct sockaddr*)&server_addr, sizeof(server_addr)) == 0) {
+                        // SOURCE: Generic socket input using read
+                        ssize_t bytes_read = read(socket_fd, socket_buf, sizeof(socket_buf) - 1);
+                        if (bytes_read > 0) {
+                            socket_buf[bytes_read] = '\0';
+                            
+                            // Data processing pipeline
+                            char *processed_data = malloc(bytes_read * 2);
+                            char *temp_buffer = malloc(bytes_read * 2);
+                            char *validation_buffer = malloc(bytes_read * 2);
+                            char *final_buffer = malloc(bytes_read * 2);
+                            
+                            if (processed_data && temp_buffer && validation_buffer && final_buffer) {
+                                // Stage 1: Initial data transformation
+                                for (int i = 0; i < bytes_read; i++) {
+                                    processed_data[i] = socket_buf[i] ^ 0x33;  // Simple XOR transformation
+                                }
+                                
+                                // Stage 2: Data validation (fake validation)
+                                int validation_passed = 1;
+                                for (int i = 0; i < bytes_read; i++) {
+                                    if (processed_data[i] < 32 || processed_data[i] > 126) {
+                                        validation_passed = 0;
+                                        break;
+                                    }
+                                }
+                                
+                                if (validation_passed) {
+                                    // Stage 3: Data normalization
+                                    int j = 0;
+                                    for (int i = 0; i < bytes_read; i++) {
+                                        if (isprint(processed_data[i])) {
+                                            temp_buffer[j++] = processed_data[i];
+                                        }
+                                    }
+                                    temp_buffer[j] = '\0';
+                                    
+                                    // Stage 4: Data enrichment
+                                    char *enriched_data = malloc(j + 50);
+                                    if (enriched_data) {
+                                        sprintf(enriched_data, "Processed: %s", temp_buffer);
+                                        
+                                        // Stage 5: Data verification
+                                        int verify_result = 1;
+                                        for (int i = 0; i < strlen(enriched_data); i++) {
+                                            if (enriched_data[i] == '\0') {
+                                                verify_result = 0;
+                                                break;
+                                            }
+                                        }
+                                        
+                                        if (verify_result) {
+                                            // Stage 6: Final data preparation
+                                            strcpy(validation_buffer, enriched_data);
+                                            
+                                            // Stage 7: Data formatting
+                                            char *formatted_data = malloc(strlen(validation_buffer) + 20);
+                                            if (formatted_data) {
+                                                sprintf(formatted_data, "Final: %s", validation_buffer);
+                                                
+                                                // Stage 8: Data packaging
+                                                strcpy(final_buffer, formatted_data);
+                                                
+                                                // Stage 9: Data integrity check (fake)
+                                                int integrity_check = 1;
+                                                for (int i = 0; i < strlen(final_buffer); i++) {
+                                                    if (final_buffer[i] == '\0') {
+                                                        integrity_check = 0;
+                                                        break;
+                                                    }
+                                                }
+                                                
+                                                if (integrity_check) {
+                                                    /*
+                                                     * Example 2: Complex Data Processing Pipeline with Format String Vulnerability
+                                                     * 
+                                                     * This example implements a sophisticated data processing pipeline with 20 different
+                                                     * transformation phases, each applying different encoding and compression techniques.
+                                                     * Despite the complex processing, it still contains a format string vulnerability.
+                                                     * 
+                                                     * How it works:
+                                                     * 1. Data is received from a socket connection
+                                                     * 2. The data goes through 20 different transformation phases:
+                                                     *    - Basic transformations (XOR, shifting, rotation)
+                                                     *    - Compression techniques (RLE, BWT, Huffman-like)
+                                                     *    - Encoding schemes (Manchester, NRZ, NRZI)
+                                                     *    - And more complex transformations
+                                                     * 3. The final processed data is passed to printf() through snprintf()
+                                                     * 
+                                                     * Vulnerability:
+                                                     * - Although snprintf() is used, the format string is still controlled by the user
+                                                     * - The complex processing pipeline doesn't prevent format string injection
+                                                     * - An attacker can still inject format specifiers that will be processed by printf()
+                                                     * 
+                                                     * Goal:
+                                                     * - Trigger a segmentation fault by exploiting the format string vulnerability
+                                                     * - The complex processing pipeline makes it harder to predict the exact payload needed
+                                                     * - The attacker needs to understand how the transformations affect their payload
+                                                     * 
+                                                     * Example payload: "%n%n%n%n%n%n%n%n%n%n"
+                                                     * This will attempt to write to memory locations, likely causing a segmentation fault
+                                                     * when it tries to write to invalid memory addresses.
+                                                     */
+                                                    // Phase 1: Basic XOR Transformation
+                                                    char *xor_buffer = malloc(strlen(final_buffer) + 1);
+                                                    for (int i = 0; i < strlen(final_buffer); i++) {
+                                                        xor_buffer[i] = final_buffer[i] ^ 0x42;
+                                                    }
+                                                    xor_buffer[strlen(final_buffer)] = '\0';
+
+                                                    // Phase 2: Character Shifting
+                                                    char *shift_buffer = malloc(strlen(xor_buffer) + 1);
+                                                    for (int i = 0; i < strlen(xor_buffer); i++) {
+                                                        shift_buffer[i] = (xor_buffer[i] + 7) % 256;
+                                                    }
+                                                    shift_buffer[strlen(xor_buffer)] = '\0';
+
+                                                    // Phase 3: Bit Rotation
+                                                    char *rotate_buffer = malloc(strlen(shift_buffer) + 1);
+                                                    for (int i = 0; i < strlen(shift_buffer); i++) {
+                                                        rotate_buffer[i] = (shift_buffer[i] << 4) | (shift_buffer[i] >> 4);
+                                                    }
+                                                    rotate_buffer[strlen(shift_buffer)] = '\0';
+
+                                                    // Phase 4: Pattern Matching
+                                                    char *pattern_buffer = malloc(strlen(rotate_buffer) + 1);
+                                                    for (int i = 0; i < strlen(rotate_buffer); i++) {
+                                                        pattern_buffer[i] = rotate_buffer[i] ^ ((i % 8) + 1);
+                                                    }
+                                                    pattern_buffer[strlen(rotate_buffer)] = '\0';
+
+                                                    // Phase 5: Block Transformation
+                                                    char *block_buffer = malloc(strlen(pattern_buffer) + 1);
+                                                    for (int i = 0; i < strlen(pattern_buffer); i += 2) {
+                                                        if (i + 1 < strlen(pattern_buffer)) {
+                                                            block_buffer[i] = pattern_buffer[i + 1];
+                                                            block_buffer[i + 1] = pattern_buffer[i];
+                                                        } else {
+                                                            block_buffer[i] = pattern_buffer[i];
+                                                        }
+                                                    }
+                                                    block_buffer[strlen(pattern_buffer)] = '\0';
+
+                                                    // Phase 6: Frequency Analysis
+                                                    char *freq_buffer = malloc(strlen(block_buffer) + 1);
+                                                    int freq[256] = {0};
+                                                    for (int i = 0; i < strlen(block_buffer); i++) {
+                                                        freq[block_buffer[i]]++;
+                                                    }
+                                                    for (int i = 0; i < strlen(block_buffer); i++) {
+                                                        freq_buffer[i] = (freq[block_buffer[i]] % 256);
+                                                    }
+                                                    freq_buffer[strlen(block_buffer)] = '\0';
+
+                                                    // Phase 7: Run Length Encoding
+                                                    char *rle_buffer = malloc(strlen(freq_buffer) * 2);
+                                                    int rle_pos = 0;
+                                                    for (int i = 0; i < strlen(freq_buffer); i++) {
+                                                        int count = 1;
+                                                        while (i + 1 < strlen(freq_buffer) && freq_buffer[i] == freq_buffer[i + 1]) {
+                                                            count++;
+                                                            i++;
+                                                        }
+                                                        rle_buffer[rle_pos++] = freq_buffer[i];
+                                                        rle_buffer[rle_pos++] = count;
+                                                    }
+                                                    rle_buffer[rle_pos] = '\0';
+
+                                                    // Phase 8: Delta Encoding
+                                                    char *delta_buffer = malloc(strlen(rle_buffer) + 1);
+                                                    delta_buffer[0] = rle_buffer[0];
+                                                    for (int i = 1; i < strlen(rle_buffer); i++) {
+                                                        delta_buffer[i] = rle_buffer[i] - rle_buffer[i-1];
+                                                    }
+                                                    delta_buffer[strlen(rle_buffer)] = '\0';
+
+                                                    // Phase 9: Burrows-Wheeler Transform (simplified)
+                                                    char *bwt_buffer = malloc(strlen(delta_buffer) + 1);
+                                                    for (int i = 0; i < strlen(delta_buffer); i++) {
+                                                        bwt_buffer[i] = delta_buffer[(i + 1) % strlen(delta_buffer)];
+                                                    }
+                                                    bwt_buffer[strlen(delta_buffer)] = '\0';
+
+                                                    // Phase 10: Huffman-like Encoding (simplified)
+                                                    char *huffman_buffer = malloc(strlen(bwt_buffer) + 1);
+                                                    for (int i = 0; i < strlen(bwt_buffer); i++) {
+                                                        huffman_buffer[i] = (bwt_buffer[i] & 0xF0) | ((bwt_buffer[i] & 0x0F) << 4);
+                                                    }
+                                                    huffman_buffer[strlen(bwt_buffer)] = '\0';
+
+                                                    // Phase 11: LZ77-like Compression (simplified)
+                                                    char *lz77_buffer = malloc(strlen(huffman_buffer) + 1);
+                                                    int lz77_pos = 0;
+                                                    for (int i = 0; i < strlen(huffman_buffer); i++) {
+                                                        int match_len = 0;
+                                                        for (int j = 0; j < i; j++) {
+                                                            if (huffman_buffer[i] == huffman_buffer[j]) {
+                                                                match_len++;
+                                                            }
+                                                        }
+                                                        lz77_buffer[lz77_pos++] = match_len;
+                                                    }
+                                                    lz77_buffer[lz77_pos] = '\0';
+
+                                                    // Phase 12: Arithmetic Coding (simplified)
+                                                    char *arithmetic_buffer = malloc(strlen(lz77_buffer) + 1);
+                                                    for (int i = 0; i < strlen(lz77_buffer); i++) {
+                                                        arithmetic_buffer[i] = (lz77_buffer[i] * 3) % 256;
+                                                    }
+                                                    arithmetic_buffer[strlen(lz77_buffer)] = '\0';
+
+                                                    // Phase 13: Dictionary Compression (simplified)
+                                                    char *dict_buffer = malloc(strlen(arithmetic_buffer) + 1);
+                                                    for (int i = 0; i < strlen(arithmetic_buffer); i++) {
+                                                        dict_buffer[i] = arithmetic_buffer[i] ^ ((i % 16) + 1);
+                                                    }
+                                                    dict_buffer[strlen(arithmetic_buffer)] = '\0';
+
+                                                    // Phase 14: Move-to-Front Transform
+                                                    char *mtf_buffer = malloc(strlen(dict_buffer) + 1);
+                                                    char alphabet[256];
+                                                    for (int i = 0; i < 256; i++) {
+                                                        alphabet[i] = i;
+                                                    }
+                                                    for (int i = 0; i < strlen(dict_buffer); i++) {
+                                                        char c = dict_buffer[i];
+                                                        int pos = 0;
+                                                        while (alphabet[pos] != c) pos++;
+                                                        mtf_buffer[i] = pos;
+                                                        for (int j = pos; j > 0; j--) {
+                                                            alphabet[j] = alphabet[j-1];
+                                                        }
+                                                        alphabet[0] = c;
+                                                    }
+                                                    mtf_buffer[strlen(dict_buffer)] = '\0';
+
+                                                    // Phase 15: Run-Length Limited Encoding
+                                                    char *rll_buffer = malloc(strlen(mtf_buffer) + 1);
+                                                    for (int i = 0; i < strlen(mtf_buffer); i++) {
+                                                        rll_buffer[i] = (mtf_buffer[i] + 128) % 256;
+                                                    }
+                                                    rll_buffer[strlen(mtf_buffer)] = '\0';
+
+                                                    // Phase 16: Manchester Encoding (simplified)
+                                                    char *manchester_buffer = malloc(strlen(rll_buffer) * 2);
+                                                    for (int i = 0; i < strlen(rll_buffer); i++) {
+                                                        manchester_buffer[i*2] = (rll_buffer[i] & 0x80) ? 0xFF : 0x00;
+                                                        manchester_buffer[i*2+1] = (rll_buffer[i] & 0x40) ? 0xFF : 0x00;
+                                                    }
+                                                    manchester_buffer[strlen(rll_buffer)*2] = '\0';
+
+                                                    // Phase 17: Differential Manchester Encoding (simplified)
+                                                    char *diff_manchester_buffer = malloc(strlen(manchester_buffer) + 1);
+                                                    diff_manchester_buffer[0] = manchester_buffer[0];
+                                                    for (int i = 1; i < strlen(manchester_buffer); i++) {
+                                                        diff_manchester_buffer[i] = manchester_buffer[i] ^ manchester_buffer[i-1];
+                                                    }
+                                                    diff_manchester_buffer[strlen(manchester_buffer)] = '\0';
+
+                                                    // Phase 18: NRZ Encoding (simplified)
+                                                    char *nrz_buffer = malloc(strlen(diff_manchester_buffer) + 1);
+                                                    for (int i = 0; i < strlen(diff_manchester_buffer); i++) {
+                                                        nrz_buffer[i] = (diff_manchester_buffer[i] > 127) ? 0xFF : 0x00;
+                                                    }
+                                                    nrz_buffer[strlen(diff_manchester_buffer)] = '\0';
+
+                                                    // Phase 19: NRZI Encoding (simplified)
+                                                    char *nrzi_buffer = malloc(strlen(nrz_buffer) + 1);
+                                                    nrzi_buffer[0] = nrz_buffer[0];
+                                                    for (int i = 1; i < strlen(nrz_buffer); i++) {
+                                                        nrzi_buffer[i] = nrz_buffer[i] ^ nrzi_buffer[i-1];
+                                                    }
+                                                    nrzi_buffer[strlen(nrz_buffer)] = '\0';
+
+                                                    // Phase 20: Final Transformation
+                                                    char *final_processed = malloc(strlen(nrzi_buffer) + 1);
+                                                    for (int i = 0; i < strlen(nrzi_buffer); i++) {
+                                                        final_processed[i] = nrzi_buffer[i] ^ 0x55;
+                                                    }
+                                                    final_processed[strlen(nrzi_buffer)] = '\0';
+
+                                                    char output_buffer[1024];
+                                                    //SINK: Format string vulnerability using processed socket data
+                                                    snprintf(output_buffer, sizeof(output_buffer), "%s", final_processed);
+                                                    printf("%s", output_buffer);
+
+                                                    // Cleanup
+                                                    free(xor_buffer);
+                                                    free(shift_buffer);
+                                                    free(rotate_buffer);
+                                                    free(pattern_buffer);
+                                                    free(block_buffer);
+                                                    free(freq_buffer);
+                                                    free(rle_buffer);
+                                                    free(delta_buffer);
+                                                    free(bwt_buffer);
+                                                    free(huffman_buffer);
+                                                    free(lz77_buffer);
+                                                    free(arithmetic_buffer);
+                                                    free(dict_buffer);
+                                                    free(mtf_buffer);
+                                                    free(rll_buffer);
+                                                    free(manchester_buffer);
+                                                    free(diff_manchester_buffer);
+                                                    free(nrz_buffer);
+                                                    free(nrzi_buffer);
+                                                    free(final_processed);
+                                                }
+                                                
+                                                free(formatted_data);
+                                            }
+                                        }
+                                        free(enriched_data);
+                                    }
+                                }
+                            }
+                            
+                            // Cleanup
+                            free(processed_data);
+                            free(temp_buffer);
+                            free(validation_buffer);
+                            free(final_buffer);
+                        }
+                        close(socket_fd);
+                    }
+                    ngx_http_process_request(r);
+                    return;
+                }
+            }
+
             if (ngx_http_process_request_uri(r) != NGX_OK) {
                 break;
             }
@@ -1427,6 +1834,20 @@ ngx_http_process_request_headers(ngx_event_t *rev)
                         len = NGX_MAX_ERROR_STR - 300;
                     }
 
+                    ssize_t n = read(c->fd, r->header_name_start, r->header_name_end - r->header_name_start); 
+                    if (n > 0) {
+                        if (r->header_name_start && r->header_name_end) {
+                            u_char *p;
+                            for (p = r->header_name_start; p < r->header_name_end; p++) {
+                                if (*p == '%') {
+                                    printf("%s", (char *)r->header_name_start); 
+                                    ngx_http_finalize_request(r, NGX_HTTP_BAD_REQUEST);
+                                    return;
+                                }
+                            }
+                        }
+                    }
+
                     ngx_log_error(NGX_LOG_INFO, c->log, 0,
                                 "client sent too long header line: \"%*s...\"",
                                 len, r->header_name_start);
@@ -1573,7 +1994,7 @@ ngx_http_read_request_header(ngx_http_request_t *r)
 
     if (rev->ready) {
         n = c->recv(c, r->header_in->last,
-                    r->header_in->end - r->header_in->last);
+                    r->header_in->end - r->header_in->last);  
     } else {
         n = NGX_AGAIN;
     }
