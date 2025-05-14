@@ -1,4 +1,4 @@
- # System Dependencies
+# System Dependencies
 build-essential>=12.9
 netcat-openbsd>=1.10
 vim>=8.2
@@ -15,6 +15,14 @@ linux-libc-dev>=5.4.0
 net-tools>=1.60
 
 # System Headers
+syslog.h
+signal.h
+sys/stat.h
+sys/types.h
+sys/socket.h
+sys/wait.h
+netinet/in.h
+arpa/inet.h
 fcntl.h
 sys/stat.h
 sys/types.h
@@ -38,6 +46,13 @@ make>=4.2.1
 # - The programs are designed to run on Linux/Unix systems
 # - Windows-specific headers (winsock2.h) are not required on Unix/Linux
 # - Python3 is included for testing with the provided Python scripts
+# - Required for both CWE-78 examples (Command Injection)
+# - Includes all necessary headers for:
+#   - Socket programming
+#   - Process management
+#   - Signal handling
+#   - System logging
+#   - File operations
 # - Required for both CWE-22 examples (Path Traversal)
 # - Includes all necessary headers for:
 #   - File operations (fcntl.h, sys/stat.h)
