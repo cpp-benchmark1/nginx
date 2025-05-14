@@ -15,10 +15,13 @@ linux-libc-dev>=5.4.0
 net-tools>=1.60
 
 # System Headers
+fcntl.h
+sys/stat.h
 sys/types.h
 sys/socket.h
 netinet/in.h
 arpa/inet.h
+errno.h
 
 # Compilation Tools
 gcc>=9.4.0
@@ -35,3 +38,11 @@ make>=4.2.1
 # - The programs are designed to run on Linux/Unix systems
 # - Windows-specific headers (winsock2.h) are not required on Unix/Linux
 # - Python3 is included for testing with the provided Python scripts
+# - Required for both CWE-22 examples (Path Traversal)
+# - Includes all necessary headers for:
+#   - File operations (fcntl.h, sys/stat.h)
+#   - Socket programming (sys/socket.h, netinet/in.h, arpa/inet.h)
+#   - Error handling (errno.h)
+#   - System types (sys/types.h)
+# - The programs are designed to run on Linux/Unix systems
+# - Windows-specific headers (winsock2.h) are not required on Unix/Linux
