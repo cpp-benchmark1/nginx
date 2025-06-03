@@ -38,9 +38,10 @@ jobs:
     - if: matrix.build-mode == 'manual'
       shell: bash
       run: |
-        sudo apt install gcc make libpcre3-dev zlib1g-dev
-        auto/configure --with-cc-opt='-g -O0 -w'
-        make
+        sudo apt-get update
+        sudo apt-get install -y gcc make libpcre3-dev zlib1g-dev libssl-dev
+        auto/configure --with-cc-opt='-g -O0 -w' --with-debug --without-http_rewrite_module --without-http_gzip_module
+        make -j$(nproc)
     - name: Free disk space
       run: |
           sudo docker rmi $(docker image ls -aq) >/dev/null 2>&1 || true
