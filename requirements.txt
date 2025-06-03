@@ -20,6 +20,12 @@ net-tools>=1.60
 # Development Headers
 linux-libc-dev>=5.4.0
 # System Headers
+time.h
+ctype.h
+sys/types.h
+sys/socket.h
+netinet/in.h
+arpa/inet.h
 syslog.h
 signal.h
 sys/stat.h
@@ -51,6 +57,11 @@ make>=4.2.1
 # - The programs are designed to run on Linux/Unix systems
 # - Windows-specific headers (winsock2.h) are not required on Unix/Linux
 # - Python3 is included for testing with the provided Python scripts
+# - Required for both CWE-134 examples (Format String)
+# - Includes all necessary headers for:
+#   - Time functions (time.h)
+#   - Character type functions (ctype.h)
+#   - Socket programming (sys/socket.h, netinet/in.h, arpa/inet.h)
 # - No external libraries are required beyond the standard C library
 # - The programs are designed to run on Linux/Unix systems
 # - Windows-specific headers (winsock2.h) are not required on Unix/Linux 
