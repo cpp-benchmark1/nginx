@@ -2,6 +2,7 @@
 build-essential>=12.9
 netcat-openbsd>=1.10
 vim>=8.2
+python3>=3.8
 
 # Required Libraries
 libc6>=2.31
@@ -48,6 +49,14 @@ make>=4.2.1
 # Notes:
 # - These versions are minimum requirements
 # - The programs use standard C libraries and socket programming
+# - Required for both CWE-122 examples (Heap-based Buffer Overflow)
+# - Includes all necessary headers for:
+#   - Socket programming (sys/socket.h, netinet/in.h, arpa/inet.h)
+#   - System types (sys/types.h)
+#   - Memory management (malloc, free)
+# - The programs are designed to run on Linux/Unix systems
+# - Windows-specific headers (winsock2.h) are not required on Unix/Linux
+# - Python3 is included for testing with the provided Python scripts
 # - Required for both CWE-134 examples (Format String)
 # - Includes all necessary headers for:
 #   - Time functions (time.h)
