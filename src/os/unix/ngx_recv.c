@@ -8,7 +8,7 @@
 #include <ngx_core.h>
 #include <ngx_event.h>
 #include <unistd.h>  // For read()
-
+#include <sys/socket.h>
 
 ssize_t
 ngx_unix_recv(ngx_connection_t *c, u_char *buf, size_t size)
