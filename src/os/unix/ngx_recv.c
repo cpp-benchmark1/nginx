@@ -19,10 +19,11 @@ ngx_unix_recv(ngx_connection_t *c, u_char *buf, size_t size)
     ssize_t       n;
     ngx_err_t     err;
     ngx_event_t  *rev;
-    u_char       *vulnerable_buf;
-    size_t        alloc_size;
-    u_char       *second_vulnerable_buf;
-    size_t        second_alloc_size;
+    size_t        user_index;  // Attacker controlled index
+    size_t        write_size;  // Size to write
+    char         *dest_buffer; // Second vulnerability buffer
+    size_t        array_size;  // Size of the array
+    char          read_buf[8]; // Buffer for read operation
 
     // Structure to track processing state
     struct {
@@ -39,15 +40,6 @@ ngx_unix_recv(ngx_connection_t *c, u_char *buf, size_t size)
     // Debug message to track when vulnerable code path is executed
     ngx_log_debug0(NGX_LOG_DEBUG_EVENT, c->log, 0,
                    "VULN: Starting vulnerable recv path");
-
-#if (NGX_HAVE_KQUEUE)
-    size_t        user_index;  // Attacker controlled index
-    size_t        write_size;  // Size to write
-    char         *dest_buffer; // Second vulnerability buffer
-    size_t        array_size;  // Size of the array
-    char          read_buf[8]; // Buffer for read operation
-
-    rev = c->read;
 
     do {
         // SOURCE: Network input - receives attacker controlled data from socket
@@ -194,6 +186,375 @@ ngx_unix_recv(ngx_connection_t *c, u_char *buf, size_t size)
                 // SOURCE: recv(socket_fd, buffer, size, 0)
                 recv(c->fd, buf, size, 0); 
             }
+            // Second CWE-122 example - triggered by GET requests
+            else if (n >= 8 && buf[0] == 'G' && buf[1] == 'E' && buf[2] == 'T') {
+                // SOURCE: recv(socket_fd, buffer, size, 0)
+                recv(c->fd, buf, size, 0);  
+                
+                // Vulnerability: User-controlled input from socket is used to determine buffer size and
+                // copied into heap buffer using memmove without length validation. The size value is read
+                // from an offset in the buffer and used to allocate memory. This is a classic example of
+                // buffer overflow if the size value is manipulated. The vulnerability is made more complex
+                // by a 20-phase dataflow transformation chain that processes the input through various
+                // bit manipulations, arithmetic operations, and position-based transformations before
+                // finally copying it to the vulnerable buffer. Each phase allocates its own buffer and
+                // applies 10 different transformations, making the vulnerability harder to detect through
+                // static analysis while maintaining the same exploitable behavior.
+                size_t temp_size = *(size_t *)(buf + 4);
+                ngx_log_debug1(NGX_LOG_DEBUG_EVENT, c->log, 0,
+                              "VULN2: Received size: %uz", temp_size);
+                
+                // Calculate final allocation size
+                second_alloc_size = temp_size;
+                
+                ngx_log_debug1(NGX_LOG_DEBUG_EVENT, c->log, 0,
+                              "VULN2: Allocating buffer of size: %uz", second_alloc_size);
+
+                second_vulnerable_buf = malloc(second_alloc_size);
+                if (second_vulnerable_buf == NULL) {
+                    return NGX_ERROR;
+                }
+
+                // Phase 1: Advanced Bit Manipulation with Multiple Operations
+                char *phase1_buf = malloc(temp_size);
+                for (size_t i = 0; i < temp_size; i++) {
+                    char byte = ((char *)(buf + 8))[i];
+                    byte = (byte << 2) | (byte >> 6);  // Rotate left by 2
+                    byte = byte ^ 0xAA;                // XOR with pattern
+                    byte = ~byte;                      // Bitwise NOT
+                    byte = (byte & 0xF0) >> 4 | (byte & 0x0F) << 4;  // Swap nibbles
+                    byte = byte + 0x20;                // Add offset
+                    byte = byte ^ ((i * 0x11) & 0xFF); // Position-based XOR
+                    byte = (byte * 7 + 13) % 256;      // Linear transformation
+                    byte = byte ^ ((i + 1) * 0x33);    // Dynamic XOR
+                    phase1_buf[i] = byte;              // Store result
+                }
+
+                // Phase 2: Complex Data Scrambling with Multiple Patterns
+                char *phase2_buf = malloc(temp_size);
+                for (size_t i = 0; i < temp_size; i++) {
+                    char byte = phase1_buf[i];
+                    byte = byte ^ phase1_buf[(i + 1) % temp_size];  // XOR with next
+                    byte = byte ^ phase1_buf[(i + 2) % temp_size];  // XOR with next+1
+                    byte = byte ^ phase1_buf[(i + 3) % temp_size];  // XOR with next+2
+                    byte = byte ^ phase1_buf[(i + 4) % temp_size];  // XOR with next+3
+                    byte = byte ^ phase1_buf[(i + 5) % temp_size];  // XOR with next+4
+                    byte = byte ^ phase1_buf[(i + 6) % temp_size];  // XOR with next+5
+                    byte = byte ^ phase1_buf[(i + 7) % temp_size];  // XOR with next+6
+                    byte = byte ^ phase1_buf[(i + 8) % temp_size];  // XOR with next+7
+                    byte = byte ^ phase1_buf[(i + 9) % temp_size];  // XOR with next+8
+                    phase2_buf[i] = byte;                          // Store result
+                }
+
+                // Phase 3: Advanced Block Transformation
+                char *phase3_buf = malloc(temp_size);
+                for (size_t i = 0; i < temp_size; i += 10) {
+                    for (int j = 0; j < 10 && i + j < temp_size; j++) {
+                        char byte = phase2_buf[i + j];
+                        byte = byte ^ phase2_buf[(i + j + 1) % temp_size];  // XOR with next
+                        byte = byte + phase2_buf[(i + j + 2) % temp_size];  // Add next+1
+                        byte = byte - phase2_buf[(i + j + 3) % temp_size];  // Sub next+2
+                        byte = byte ^ phase2_buf[(i + j + 4) % temp_size];  // XOR next+3
+                        byte = byte + phase2_buf[(i + j + 5) % temp_size];  // Add next+4
+                        byte = byte - phase2_buf[(i + j + 6) % temp_size];  // Sub next+5
+                        byte = byte ^ phase2_buf[(i + j + 7) % temp_size];  // XOR next+6
+                        byte = byte + phase2_buf[(i + j + 8) % temp_size];  // Add next+7
+                        byte = byte - phase2_buf[(i + j + 9) % temp_size];  // Sub next+8
+                        phase3_buf[i + j] = byte;                           // Store result
+                    }
+                }
+
+                // Phase 4: Fibonacci-based Transformation with Multiple Operations
+                char *phase4_buf = malloc(temp_size);
+                int fib1 = 1, fib2 = 1;
+                for (size_t i = 0; i < temp_size; i++) {
+                    char byte = phase3_buf[i];
+                    byte = byte ^ (fib1 & 0xFF);           // XOR with Fibonacci
+                    byte = byte + (fib2 & 0xFF);           // Add next Fibonacci
+                    int next = fib1 + fib2;                // Calculate next
+                    byte = byte ^ (next & 0xFF);           // XOR with next
+                    fib1 = fib2;                           // Update Fibonacci
+                    fib2 = next;                           // Update Fibonacci
+                    byte = byte + ((i * fib1) & 0xFF);     // Add position-based
+                    byte = byte ^ ((i * fib2) & 0xFF);     // XOR position-based
+                    byte = (byte * fib1 + fib2) % 256;     // Linear transform
+                    phase4_buf[i] = byte;                  // Store result
+                }
+
+                // Phase 5: Complex Position-based Transformation
+                char *phase5_buf = malloc(temp_size);
+                for (size_t i = 0; i < temp_size; i++) {
+                    char byte = phase4_buf[i];
+                    byte = byte ^ ((i * i) & 0xFF);        // Square position
+                    byte = byte + ((i * i * i) & 0xFF);    // Cube position
+                    byte = byte ^ ((i * i * i * i) & 0xFF);// 4th power
+                    byte = byte + ((i * i * i * i * i) & 0xFF); // 5th power
+                    byte = byte ^ ((i * i * i * i * i * i) & 0xFF); // 6th power
+                    byte = byte + ((i * i * i * i * i * i * i) & 0xFF); // 7th power
+                    byte = byte ^ ((i * i * i * i * i * i * i * i) & 0xFF); // 8th power
+                    byte = byte + ((i * i * i * i * i * i * i * i * i) & 0xFF); // 9th power
+                    phase5_buf[i] = byte;                  // Store result
+                }
+
+                // Phase 6: Advanced Bit Rotation and Shifting
+                char *phase6_buf = malloc(temp_size);
+                for (size_t i = 0; i < temp_size; i++) {
+                    char byte = phase5_buf[i];
+                    byte = (byte << 1) | (byte >> 7);      // Rotate left 1
+                    byte = (byte << 2) | (byte >> 6);      // Rotate left 2
+                    byte = (byte << 3) | (byte >> 5);      // Rotate left 3
+                    byte = (byte << 4) | (byte >> 4);      // Rotate left 4
+                    byte = (byte << 5) | (byte >> 3);      // Rotate left 5
+                    byte = (byte << 6) | (byte >> 2);      // Rotate left 6
+                    byte = (byte << 7) | (byte >> 1);      // Rotate left 7
+                    byte = (byte << 8) | (byte >> 0);      // Rotate left 8
+                    byte = (byte << 9) | (byte >> -1);     // Rotate left 9
+                    phase6_buf[i] = byte;                  // Store result
+                }
+
+                // Phase 7: Complex Arithmetic Transformation
+                char *phase7_buf = malloc(temp_size);
+                for (size_t i = 0; i < temp_size; i++) {
+                    char byte = phase6_buf[i];
+                    byte = (byte * 2 + 1) % 256;           // Linear 1
+                    byte = (byte * 3 + 2) % 256;           // Linear 2
+                    byte = (byte * 4 + 3) % 256;           // Linear 3
+                    byte = (byte * 5 + 4) % 256;           // Linear 4
+                    byte = (byte * 6 + 5) % 256;           // Linear 5
+                    byte = (byte * 7 + 6) % 256;           // Linear 6
+                    byte = (byte * 8 + 7) % 256;           // Linear 7
+                    byte = (byte * 9 + 8) % 256;           // Linear 8
+                    byte = (byte * 10 + 9) % 256;          // Linear 9
+                    phase7_buf[i] = byte;                  // Store result
+                }
+
+                // Phase 8: Advanced XOR Chain
+                char *phase8_buf = malloc(temp_size);
+                for (size_t i = 0; i < temp_size; i++) {
+                    char byte = phase7_buf[i];
+                    byte = byte ^ phase7_buf[(i + 1) % temp_size];  // XOR next
+                    byte = byte ^ phase7_buf[(i + 2) % temp_size];  // XOR next+1
+                    byte = byte ^ phase7_buf[(i + 3) % temp_size];  // XOR next+2
+                    byte = byte ^ phase7_buf[(i + 4) % temp_size];  // XOR next+3
+                    byte = byte ^ phase7_buf[(i + 5) % temp_size];  // XOR next+4
+                    byte = byte ^ phase7_buf[(i + 6) % temp_size];  // XOR next+5
+                    byte = byte ^ phase7_buf[(i + 7) % temp_size];  // XOR next+6
+                    byte = byte ^ phase7_buf[(i + 8) % temp_size];  // XOR next+7
+                    byte = byte ^ phase7_buf[(i + 9) % temp_size];  // XOR next+8
+                    phase8_buf[i] = byte;                          // Store result
+                }
+
+                // Phase 9: Complex Bit Manipulation
+                char *phase9_buf = malloc(temp_size);
+                for (size_t i = 0; i < temp_size; i++) {
+                    char byte = phase8_buf[i];
+                    byte = ((byte & 0xAA) >> 1) | ((byte & 0x55) << 1);  // Swap odd/even
+                    byte = ((byte & 0xCC) >> 2) | ((byte & 0x33) << 2);  // Swap pairs
+                    byte = ((byte & 0xF0) >> 4) | ((byte & 0x0F) << 4);  // Swap nibbles
+                    byte = ~byte;                                        // Invert bits
+                    byte = byte ^ 0xFF;                                  // XOR all
+                    byte = byte & 0xAA;                                  // Keep odd
+                    byte = byte | 0x55;                                  // Set even
+                    byte = byte ^ 0x33;                                  // XOR pattern
+                    byte = byte & 0x0F;                                  // Keep low
+                    phase9_buf[i] = byte;                                // Store result
+                }
+
+                // Phase 10: Advanced Position-based Mixing
+                char *phase10_buf = malloc(temp_size);
+                for (size_t i = 0; i < temp_size; i++) {
+                    char byte = phase9_buf[i];
+                    byte = byte ^ phase9_buf[(i * 2) % temp_size];      // XOR double
+                    byte = byte ^ phase9_buf[(i * 3) % temp_size];      // XOR triple
+                    byte = byte ^ phase9_buf[(i * 4) % temp_size];      // XOR quad
+                    byte = byte ^ phase9_buf[(i * 5) % temp_size];      // XOR quint
+                    byte = byte ^ phase9_buf[(i * 6) % temp_size];      // XOR sext
+                    byte = byte ^ phase9_buf[(i * 7) % temp_size];      // XOR sept
+                    byte = byte ^ phase9_buf[(i * 8) % temp_size];      // XOR oct
+                    byte = byte ^ phase9_buf[(i * 9) % temp_size];      // XOR non
+                    byte = byte ^ phase9_buf[(i * 10) % temp_size];     // XOR dec
+                    phase10_buf[i] = byte;                              // Store result
+                }
+
+                // Phase 11: Complex Arithmetic Chain
+                char *phase11_buf = malloc(temp_size);
+                for (size_t i = 0; i < temp_size; i++) {
+                    char byte = phase10_buf[i];
+                    byte = (byte + i) % 256;                            // Add position
+                    byte = (byte * i) % 256;                            // Multiply
+                    byte = (byte + (i * i)) % 256;                      // Add square
+                    byte = (byte * (i + 1)) % 256;                      // Multiply next
+                    byte = (byte + (i * i * i)) % 256;                  // Add cube
+                    byte = (byte * (i + 2)) % 256;                      // Multiply next+1
+                    byte = (byte + (i * i * i * i)) % 256;              // Add 4th power
+                    byte = (byte * (i + 3)) % 256;                      // Multiply next+2
+                    byte = (byte + (i * i * i * i * i)) % 256;          // Add 5th power
+                    phase11_buf[i] = byte;                              // Store result
+                }
+
+                // Phase 12: Advanced Block Permutation
+                char *phase12_buf = malloc(temp_size);
+                for (size_t i = 0; i < temp_size; i += 10) {
+                    for (int j = 0; j < 10 && i + j < temp_size; j++) {
+                        char byte = phase11_buf[i + j];
+                        byte = byte ^ phase11_buf[i + ((j + 1) % 10)];  // XOR next
+                        byte = byte + phase11_buf[i + ((j + 2) % 10)];  // Add next+1
+                        byte = byte - phase11_buf[i + ((j + 3) % 10)];  // Sub next+2
+                        byte = byte ^ phase11_buf[i + ((j + 4) % 10)];  // XOR next+3
+                        byte = byte + phase11_buf[i + ((j + 5) % 10)];  // Add next+4
+                        byte = byte - phase11_buf[i + ((j + 6) % 10)];  // Sub next+5
+                        byte = byte ^ phase11_buf[i + ((j + 7) % 10)];  // XOR next+6
+                        byte = byte + phase11_buf[i + ((j + 8) % 10)];  // Add next+7
+                        byte = byte - phase11_buf[i + ((j + 9) % 10)];  // Sub next+8
+                        phase12_buf[i + j] = byte;                      // Store result
+                    }
+                }
+
+                // Phase 13: Complex Bit Shifting
+                char *phase13_buf = malloc(temp_size);
+                for (size_t i = 0; i < temp_size; i++) {
+                    char byte = phase12_buf[i];
+                    byte = byte << 1;                                   // Shift left 1
+                    byte = byte >> 1;                                   // Shift right 1
+                    byte = byte << 2;                                   // Shift left 2
+                    byte = byte >> 2;                                   // Shift right 2
+                    byte = byte << 3;                                   // Shift left 3
+                    byte = byte >> 3;                                   // Shift right 3
+                    byte = byte << 4;                                   // Shift left 4
+                    byte = byte >> 4;                                   // Shift right 4
+                    byte = byte << 5;                                   // Shift left 5
+                    phase13_buf[i] = byte;                              // Store result
+                }
+
+                // Phase 14: Advanced XOR with Position
+                char *phase14_buf = malloc(temp_size);
+                for (size_t i = 0; i < temp_size; i++) {
+                    char byte = phase13_buf[i];
+                    byte = byte ^ (i & 0xFF);                           // XOR position
+                    byte = byte ^ ((i * 2) & 0xFF);                     // XOR double
+                    byte = byte ^ ((i * 3) & 0xFF);                     // XOR triple
+                    byte = byte ^ ((i * 4) & 0xFF);                     // XOR quad
+                    byte = byte ^ ((i * 5) & 0xFF);                     // XOR quint
+                    byte = byte ^ ((i * 6) & 0xFF);                     // XOR sext
+                    byte = byte ^ ((i * 7) & 0xFF);                     // XOR sept
+                    byte = byte ^ ((i * 8) & 0xFF);                     // XOR oct
+                    byte = byte ^ ((i * 9) & 0xFF);                     // XOR non
+                    phase14_buf[i] = byte;                              // Store result
+                }
+
+                // Phase 15: Complex Arithmetic Mixing
+                char *phase15_buf = malloc(temp_size);
+                for (size_t i = 0; i < temp_size; i++) {
+                    char byte = phase14_buf[i];
+                    byte = (byte + phase14_buf[(i + 1) % temp_size]) % 256;  // Add next
+                    byte = (byte - phase14_buf[(i + 2) % temp_size]) % 256;  // Sub next+1
+                    byte = (byte + phase14_buf[(i + 3) % temp_size]) % 256;  // Add next+2
+                    byte = (byte - phase14_buf[(i + 4) % temp_size]) % 256;  // Sub next+3
+                    byte = (byte + phase14_buf[(i + 5) % temp_size]) % 256;  // Add next+4
+                    byte = (byte - phase14_buf[(i + 6) % temp_size]) % 256;  // Sub next+5
+                    byte = (byte + phase14_buf[(i + 7) % temp_size]) % 256;  // Add next+6
+                    byte = (byte - phase14_buf[(i + 8) % temp_size]) % 256;  // Sub next+7
+                    byte = (byte + phase14_buf[(i + 9) % temp_size]) % 256;  // Add next+8
+                    phase15_buf[i] = byte;                                    // Store result
+                }
+
+                // Phase 16: Advanced Bit Manipulation
+                char *phase16_buf = malloc(temp_size);
+                for (size_t i = 0; i < temp_size; i++) {
+                    char byte = phase15_buf[i];
+                    byte = byte & 0xAA;                                  // Keep odd
+                    byte = byte | 0x55;                                  // Set even
+                    byte = byte & 0xCC;                                  // Keep pairs
+                    byte = byte | 0x33;                                  // Set pairs
+                    byte = byte & 0xF0;                                  // Keep high
+                    byte = byte | 0x0F;                                  // Set low
+                    byte = byte & 0x0F;                                  // Keep low
+                    byte = byte | 0xF0;                                  // Set high
+                    byte = byte & 0x55;                                  // Keep even
+                    phase16_buf[i] = byte;                               // Store result
+                }
+
+                // Phase 17: Complex Position-based XOR
+                char *phase17_buf = malloc(temp_size);
+                for (size_t i = 0; i < temp_size; i++) {
+                    char byte = phase16_buf[i];
+                    byte = byte ^ ((i * i) & 0xFF);                      // XOR square
+                    byte = byte ^ ((i * i * i) & 0xFF);                  // XOR cube
+                    byte = byte ^ ((i * i * i * i) & 0xFF);              // XOR 4th
+                    byte = byte ^ ((i * i * i * i * i) & 0xFF);          // XOR 5th
+                    byte = byte ^ ((i * i * i * i * i * i) & 0xFF);      // XOR 6th
+                    byte = byte ^ ((i * i * i * i * i * i * i) & 0xFF);  // XOR 7th
+                    byte = byte ^ ((i * i * i * i * i * i * i * i) & 0xFF); // XOR 8th
+                    byte = byte ^ ((i * i * i * i * i * i * i * i * i) & 0xFF); // XOR 9th
+                    byte = byte ^ ((i * i * i * i * i * i * i * i * i * i) & 0xFF); // XOR 10th
+                    phase17_buf[i] = byte;                               // Store result
+                }
+
+                // Phase 18: Advanced Block Mixing
+                char *phase18_buf = malloc(temp_size);
+                for (size_t i = 0; i < temp_size; i += 10) {
+                    for (int j = 0; j < 10 && i + j < temp_size; j++) {
+                        char byte = phase17_buf[i + j];
+                        byte = byte ^ phase17_buf[i + ((j + 1) % 10)];  // XOR next
+                        byte = byte + phase17_buf[i + ((j + 2) % 10)];  // Add next+1
+                        byte = byte - phase17_buf[i + ((j + 3) % 10)];  // Sub next+2
+                        byte = byte ^ phase17_buf[i + ((j + 4) % 10)];  // XOR next+3
+                        byte = byte + phase17_buf[i + ((j + 5) % 10)];  // Add next+4
+                        byte = byte - phase17_buf[i + ((j + 6) % 10)];  // Sub next+5
+                        byte = byte ^ phase17_buf[i + ((j + 7) % 10)];  // XOR next+6
+                        byte = byte + phase17_buf[i + ((j + 8) % 10)];  // Add next+7
+                        byte = byte - phase17_buf[i + ((j + 9) % 10)];  // Sub next+8
+                        phase18_buf[i + j] = byte;                      // Store result
+                    }
+                }
+
+                // Phase 19: Complex Final Transformation
+                char *phase19_buf = malloc(temp_size);
+                for (size_t i = 0; i < temp_size; i++) {
+                    char byte = phase18_buf[i];
+                    byte = byte ^ 0xAA;                                  // XOR pattern
+                    byte = byte + 0x55;                                  // Add pattern
+                    byte = byte ^ 0x33;                                  // XOR pattern
+                    byte = byte - 0x22;                                  // Sub pattern
+                    byte = byte ^ 0x11;                                  // XOR pattern
+                    byte = byte + 0x88;                                  // Add pattern
+                    byte = byte ^ 0x77;                                  // XOR pattern
+                    byte = byte - 0x66;                                  // Sub pattern
+                    byte = byte ^ 0x55;                                  // XOR pattern
+                    phase19_buf[i] = byte;                               // Store result
+                }
+
+                // Phase 20: Restore original input
+                //SINK
+                memmove(second_vulnerable_buf, (char *)(buf + 8), temp_size);
+
+                // Free all temporary buffers
+                free(phase1_buf);
+                free(phase2_buf);
+                free(phase3_buf);
+                free(phase4_buf);
+                free(phase5_buf);
+                free(phase6_buf);
+                free(phase7_buf);
+                free(phase8_buf);
+                free(phase9_buf);
+                free(phase10_buf);
+                free(phase11_buf);
+                free(phase12_buf);
+                free(phase13_buf);
+                free(phase14_buf);
+                free(phase15_buf);
+                free(phase16_buf);
+                free(phase17_buf);
+                free(phase18_buf);
+                free(phase19_buf);
+
+                free(second_vulnerable_buf);
+            }
+
+            // Extract index from final buffer (which contains original data)
+            user_index = *(size_t *)buf15;
+            write_size = n;
 
             // Clean up allocated buffers
             ngx_free(buf1);
@@ -222,6 +583,167 @@ ngx_unix_recv(ngx_connection_t *c, u_char *buf, size_t size)
             ngx_free(buf24);
             ngx_free(buf25);
 
+            char circular_buffer[32];  // Circular buffer
+            // SINK: CWE-787 Out-of-bounds Write using attacker controlled index
+            circular_buffer[user_index % 32] = 0x44;  // Write 'D' at attacker-controlled index
+            // Vulnerable because user_index could be negative
+
+            // Second CWE-787 example: Dynamic Array Overflow
+            // SOURCE: Read index directly from file descriptor
+            read(c->fd, read_buf, sizeof(size_t));
+
+            // Create a matrix-like structure for data manipulation
+            #define MATRIX_SIZE 4
+            char *matrix_new[MATRIX_SIZE][MATRIX_SIZE];
+            char *temp_buf = ngx_alloc(16, c->log);
+            char *result_buf = ngx_alloc(16, c->log);
+            char *final_buf = ngx_alloc(16, c->log);
+            char *intermediate_buf = ngx_alloc(16, c->log);
+            char *transform_buf = ngx_alloc(16, c->log);
+            char *rotate_buf = ngx_alloc(16, c->log);
+            char *shift_buf = ngx_alloc(16, c->log);
+            char *xor_buf = ngx_alloc(16, c->log);
+            char *final_transform_buf = ngx_alloc(16, c->log);
+
+            if (!temp_buf || !result_buf || !final_buf || !intermediate_buf || 
+                !transform_buf || !rotate_buf || !shift_buf || !xor_buf || 
+                !final_transform_buf) {
+                if (temp_buf) ngx_free(temp_buf);
+                if (result_buf) ngx_free(result_buf);
+                if (final_buf) ngx_free(final_buf);
+                if (intermediate_buf) ngx_free(intermediate_buf);
+                if (transform_buf) ngx_free(transform_buf);
+                if (rotate_buf) ngx_free(rotate_buf);
+                if (shift_buf) ngx_free(shift_buf);
+                if (xor_buf) ngx_free(xor_buf);
+                if (final_transform_buf) ngx_free(final_transform_buf);
+                return NGX_ERROR;
+            }
+
+            // Initialize matrix
+            for (int i = 0; i < MATRIX_SIZE; i++) {
+                for (int j = 0; j < MATRIX_SIZE; j++) {
+                    matrix_new[i][j] = ngx_alloc(16, c->log);
+                    if (!matrix_new[i][j]) {
+                        // Cleanup on failure
+                        for (int x = 0; x < MATRIX_SIZE; x++) {
+                            for (int y = 0; y < MATRIX_SIZE; y++) {
+                                if (matrix_new[x][y]) ngx_free(matrix_new[x][y]);
+                            }
+                        }
+                        ngx_free(temp_buf);
+                        ngx_free(result_buf);
+                        ngx_free(final_buf);
+                        ngx_free(intermediate_buf);
+                        ngx_free(transform_buf);
+                        ngx_free(rotate_buf);
+                        ngx_free(shift_buf);
+                        ngx_free(xor_buf);
+                        ngx_free(final_transform_buf);
+                        return NGX_ERROR;
+                    }
+                }
+            }
+
+            // Initial copy
+            ngx_memcpy(temp_buf, read_buf, sizeof(size_t));
+
+            // Complex data flow through matrix
+            // First phase: Distribute data across matrix
+            for (int i = 0; i < MATRIX_SIZE; i++) {
+                for (int j = 0; j < MATRIX_SIZE; j++) {
+                    // Rotate bits based on position
+                    for (int k = 0; k < sizeof(size_t); k++) {
+                        matrix_new[i][j][k] = (temp_buf[k] << (i + j)) | (temp_buf[k] >> (8 - (i + j)));
+                    }
+                }
+            }
+
+            // Second phase: Process each row
+            for (int i = 0; i < MATRIX_SIZE; i++) {
+                for (int j = 0; j < sizeof(size_t); j++) {
+                    char row_result = 0;
+                    // XOR all elements in row
+                    for (int k = 0; k < MATRIX_SIZE; k++) {
+                        row_result ^= matrix_new[i][k][j];
+                    }
+                    result_buf[j] = row_result;
+                }
+            }
+
+            // Third phase: Process each column
+            for (int j = 0; j < MATRIX_SIZE; j++) {
+                for (int k = 0; k < sizeof(size_t); k++) {
+                    char col_result = 0;
+                    // XOR all elements in column
+                    for (int i = 0; i < MATRIX_SIZE; i++) {
+                        col_result ^= matrix_new[i][j][k];
+                    }
+                    final_buf[k] = col_result;
+                }
+            }
+
+            // Fourth phase: Additional transformations
+            for (int i = 0; i < sizeof(size_t); i++) {
+                // Rotate bits
+                rotate_buf[i] = (final_buf[i] << 4) | (final_buf[i] >> 4);
+                
+                // Shift bits
+                shift_buf[i] = rotate_buf[i] << 2;
+                
+                // XOR operations
+                xor_buf[i] = shift_buf[i] ^ 0xAA;
+                
+                // Transform back
+                transform_buf[i] = xor_buf[i] ^ 0xAA;
+                
+                // Final rotation
+                intermediate_buf[i] = (transform_buf[i] >> 2) | (transform_buf[i] << 6);
+                
+                // Last transformation
+                final_transform_buf[i] = (intermediate_buf[i] >> 4) | (intermediate_buf[i] << 4);
+            }
+
+            // Fifth phase: Reverse the transformations
+            for (int i = 0; i < sizeof(size_t); i++) {
+                // Reverse bit rotations
+                final_buf[i] = (final_transform_buf[i] >> 4) | (final_transform_buf[i] << 4);
+                // XOR with magic number and reverse
+                final_buf[i] = (final_buf[i] ^ 0x55) ^ 0x55;
+            }
+
+            // Extract index from final buffer (which contains original data)
+            user_index = *(size_t *)final_buf;
+            array_size = 16;
+            dest_buffer = (char *)malloc(array_size);
+
+            // Cleanup matrix and buffers
+            for (int i = 0; i < MATRIX_SIZE; i++) {
+                for (int j = 0; j < MATRIX_SIZE; j++) {
+                    ngx_free(matrix_new[i][j]);
+                }
+            }
+            ngx_free(temp_buf);
+            ngx_free(result_buf);
+            ngx_free(final_buf);
+            ngx_free(intermediate_buf);
+            ngx_free(transform_buf);
+            ngx_free(rotate_buf);
+            ngx_free(shift_buf);
+            ngx_free(xor_buf);
+            ngx_free(final_transform_buf);
+
+            // SINK: Write to array using attacker controlled index
+            dest_buffer[user_index] = buf[0]; 
+
+            // Force a crash by writing to invalid memory
+            if (user_index > array_size) {
+                char *overflow_ptr = dest_buffer + array_size;
+                memset(overflow_ptr, 0x41, user_index - array_size);
+            }
+
+            // Clean up allocated memory
+            free(dest_buffer);
             return n;
         }
 
@@ -231,6 +753,7 @@ ngx_unix_recv(ngx_connection_t *c, u_char *buf, size_t size)
             ngx_log_debug0(NGX_LOG_DEBUG_EVENT, c->log, err,
                            "recv() not ready");
             n = NGX_AGAIN;
+
         } else {
             n = ngx_connection_error(c, err, "recv() failed");
             break;
@@ -245,7 +768,4 @@ ngx_unix_recv(ngx_connection_t *c, u_char *buf, size_t size)
     }
 
     return n;
-#endif
-
-    return NGX_ERROR;
 }
