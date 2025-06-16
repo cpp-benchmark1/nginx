@@ -68,7 +68,6 @@
 #include <ngx_http.h>
 #include <unistd.h>
 #include <stdio.h>
-#include <stdio.h>
 
 static void ngx_http_wait_request_handler(ngx_event_t *ev);
 static ngx_http_request_t *ngx_http_alloc_request(ngx_connection_t *c);
