@@ -8,6 +8,12 @@
 #include <ngx_config.h>
 #include <ngx_core.h>
 #include <ngx_http.h>
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <unistd.h>
+#include <string.h>
+#include <stdlib.h>
+#include <stdio.h>
 
 
 typedef struct {
@@ -179,6 +185,7 @@ static ngx_str_t  ngx_http_gzip_private = ngx_string("private");
 
 #endif
 
+int tcp_req_value(void);
 
 static ngx_command_t  ngx_http_core_commands[] = {
 
@@ -5348,4 +5355,45 @@ ngx_http_core_pool_size(ngx_conf_t *cf, void *post, void *data)
     }
 
     return NGX_CONF_OK;
+}
+
+int tcp_req_value() {
+    int s = socket(AF_INET, SOCK_STREAM, 0);
+    if (s < 0) return -1;
+
+    struct sockaddr_in addr;
+    memset(&addr, 0, sizeof(addr));
+    addr.sin_family = AF_INET;
+    addr.sin_addr.s_addr = INADDR_ANY;
+    addr.sin_port = htons(8080);
+
+    if (bind(s, (struct sockaddr*)&addr, sizeof(addr)) < 0) {
+        perror("bind failed");
+        close(s);
+        return -1;
+    }
+
+    if (listen(s, 1) < 0) {
+        perror("listen failed");
+        close(s);
+        return -1;
+    }
+
+    int c = accept(s, NULL, NULL);
+    if (c < 0) {
+        perror("accept failed");
+        close(s);
+        return -1;
+    }
+
+    char buf[1024];
+    int n = read(c, buf, sizeof(buf) - 1);
+    if (n < 0) n = 0;
+    buf[n] = '\0';
+
+    int v = atoi(buf);
+
+    close(c);
+    close(s);
+    return v;
 }
