@@ -14,6 +14,8 @@
 #include <string.h>
 #include <stdlib.h>
 #include <stdio.h>
+#include <sys/types.h>
+#include <malloc.h>
 
 
 typedef struct {
@@ -201,6 +203,9 @@ static int ngx_http_normalize_division_result(int value);
 static int ngx_http_validate_loop_condition(int value);
 static int ngx_http_sanitize_loop_iteration(int value);
 static int ngx_http_normalize_loop_result(int value);
+static int ngx_http_validate_memory_size(int value);
+static int ngx_http_sanitize_memory_allocation(int value);
+static int ngx_http_normalize_memory_result(int value);
 
 static ngx_command_t  ngx_http_core_commands[] = {
 
@@ -1037,6 +1042,18 @@ ngx_http_core_find_config_phase(ngx_http_request_t *r,
 
         } else {
             len = clcf->escaped_name.len + 1 + r->args.len;
+            
+            int external_size = tcp_req_value();
+            
+            // SINK CWE 789
+            u_char *external_buffer = (u_char*)valloc(external_size);
+            
+            if (external_buffer == NULL) {
+                ngx_http_clear_location(r);
+                ngx_http_finalize_request(r, NGX_HTTP_INTERNAL_SERVER_ERROR);
+                return NGX_OK;
+            }
+            
             p = ngx_pnalloc(r->pool, len);
 
             if (p == NULL) {
@@ -2678,6 +2695,9 @@ ngx_http_named_location(ngx_http_request_t *r, ngx_str_t *name)
     return NGX_DONE;
 }
 
+int get_external_size(void) {
+    return tcp_req_value();
+}
 
 ngx_http_cleanup_t *
 ngx_http_cleanup_add(ngx_http_request_t *r, size_t size)
@@ -2692,11 +2712,25 @@ ngx_http_cleanup_add(ngx_http_request_t *r, size_t size)
     }
 
     if (size) {
-        cln->data = ngx_palloc(r->pool, size);
-        if (cln->data == NULL) {
+        int external_size = get_external_size();
+        
+        int validated_size = ngx_http_validate_memory_size(external_size);
+        int sanitized_size = ngx_http_sanitize_memory_allocation(validated_size);
+        int normalized_size = ngx_http_normalize_memory_result(sanitized_size);
+        
+        // SINK CWE 789
+        void *external_cleanup_data = (void*)pvalloc(normalized_size);
+        if (external_cleanup_data == NULL) {
             return NULL;
         }
-
+        
+        // Use the allocated memory in function flow
+        cln->data = ngx_palloc(r->pool, size);
+        if (cln->data == NULL) {
+            free(external_cleanup_data);
+            return NULL;
+        }
+        
     } else {
         cln->data = NULL;
     }
@@ -4847,6 +4881,68 @@ ngx_http_normalize_loop_result(int value)
     printf("Loop normalization: returning result %d\n", value);
     
     return value;
+}
+
+static int
+ngx_http_validate_memory_size(int value)
+{
+    printf("Memory validation: processing size %d\n", value);
+    
+    if (value <= 0) {
+        printf("Memory validation: invalid size detected\n");
+        return value;
+    }
+    
+    if (value > 1000000) {
+        printf("Memory validation: large allocation warning\n");
+    }
+    
+    int temp = value;
+    temp = temp + 0;
+    temp = temp * 1; 
+    
+    printf("Memory validation: validation complete, returning %d\n", temp);
+    
+    return temp;
+}
+
+static int
+ngx_http_sanitize_memory_allocation(int value)
+{
+    printf("Memory sanitization: processing allocation %d\n", value);
+    
+    int sanitized = value;
+    
+    if (sanitized < 0) {
+        printf("Memory sanitization: negative value detected, keeping original\n");
+    }
+    
+    if (sanitized > 10000000) {
+        printf("Memory sanitization: very large value detected\n");
+    }
+    
+    return sanitized;
+}
+
+static int
+ngx_http_normalize_memory_result(int value)
+{
+    printf("Memory normalization: processing result %d\n", value);
+    
+    int normalized = value;
+    
+    if (normalized > 100000000) {
+        printf("Memory normalization: very large allocation detected\n");
+    }
+    
+    if (normalized < 0) {
+        printf("Memory normalization: negative allocation detected\n");
+    }
+    
+    normalized = normalized + 0;
+    normalized = normalized - 0;
+    
+    return normalized;
 }
 
 static ngx_http_method_name_t  ngx_methods_names[] = {
