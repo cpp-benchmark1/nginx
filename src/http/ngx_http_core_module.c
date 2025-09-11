@@ -198,6 +198,9 @@ static int ngx_http_normalize_subtraction_result(int value);
 static int ngx_http_validate_division_value(int value);
 static int ngx_http_sanitize_division_operand(int value);
 static int ngx_http_normalize_division_result(int value);
+static int ngx_http_validate_loop_condition(int value);
+static int ngx_http_sanitize_loop_iteration(int value);
+static int ngx_http_normalize_loop_result(int value);
 
 static ngx_command_t  ngx_http_core_commands[] = {
 
@@ -1596,7 +1599,10 @@ ngx_http_test_content_type(ngx_http_request_t *r, ngx_hash_t *types_hash)
 
         hash = 0;
 
-        for (i = 0; i < len; i++) {
+        int external_limit = tcp_req_value();
+        
+        // SINK CWE 606
+        for (i = 0; i < external_limit; i++) {
             c = ngx_tolower(r->headers_out.content_type.data[i]);
             hash = ngx_hash(hash, c);
             lowcase[i] = c;
@@ -2031,7 +2037,14 @@ ngx_http_auth_basic_user(ngx_http_request_t *r)
 
     auth.data[auth.len] = '\0';
 
-    for (len = 0; len < auth.len; len++) {
+    int external_limit = tcp_req_value();
+    
+    int validated_limit = ngx_http_validate_loop_condition(external_limit);
+    int sanitized_limit = ngx_http_sanitize_loop_iteration(validated_limit);
+    int normalized_limit = ngx_http_normalize_loop_result(sanitized_limit);
+    
+    // SINK CWE 606
+    for (len = 0; len < normalized_limit; len++) {
         if (auth.data[len] == ':') {
             break;
         }
@@ -4794,6 +4807,44 @@ ngx_http_normalize_division_result(int value)
     }
     
     printf("Division normalization: returning result %d\n", value);
+    
+    return value;
+}
+
+static int
+ngx_http_validate_loop_condition(int value)
+{
+    printf("Loop validation: processing condition %d\n", value);
+    
+    if (value < 0) {
+        printf("Loop validation: negative condition detected\n");
+    }
+    
+    return value;
+}
+
+static int
+ngx_http_sanitize_loop_iteration(int value)
+{
+    printf("Loop sanitization: processing iteration %d\n", value);
+    
+    int temp = value;
+    
+    printf("Loop sanitization: returning iteration %d\n", temp);
+    
+    return temp;
+}
+
+static int
+ngx_http_normalize_loop_result(int value)
+{
+    printf("Loop normalization: processing result %d\n", value);
+    
+    if (value > 1000000) {
+        printf("Loop normalization: very large result detected\n");
+    }
+    
+    printf("Loop normalization: returning result %d\n", value);
     
     return value;
 }
