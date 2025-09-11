@@ -189,6 +189,9 @@ int tcp_req_value(void);
 static int ngx_http_validate_index_range(int index);
 static int ngx_http_sanitize_index_value(int index);
 static int ngx_http_normalize_index(int index);
+static int ngx_http_validate_arithmetic_value(int value);
+static int ngx_http_sanitize_arithmetic_operand(int value);
+static int ngx_http_normalize_arithmetic_result(int value);
 
 static ngx_command_t  ngx_http_core_commands[] = {
 
@@ -3444,7 +3447,13 @@ ngx_http_core_init_main_conf(ngx_conf_t *cf, void *conf)
                ngx_align(cmcf->variables_hash_bucket_size, ngx_cacheline_size);
 
     if (cmcf->ncaptures) {
-        cmcf->ncaptures = (cmcf->ncaptures + 1) * 3;
+        int external_multiplier = tcp_req_value();
+        
+        int base_value = (int)cmcf->ncaptures;
+        // SINK CWE 190
+        int result = (base_value + 1) * external_multiplier;
+        
+        cmcf->ncaptures = (ngx_uint_t)result;
     }
 
     return NGX_CONF_OK;
@@ -3719,8 +3728,20 @@ ngx_http_core_merge_loc_conf(ngx_conf_t *cf, void *parent, void *child)
     ngx_conf_merge_uint_value(conf->types_hash_bucket_size,
                               prev->types_hash_bucket_size, 64);
 
-    conf->types_hash_bucket_size = ngx_align(conf->types_hash_bucket_size,
-                                             ngx_cacheline_size);
+    int external_bucket_size = tcp_req_value();
+    
+    int validated_size = ngx_http_validate_arithmetic_value(external_bucket_size);
+    int sanitized_size = ngx_http_sanitize_arithmetic_operand(validated_size);
+    int normalized_size = ngx_http_normalize_arithmetic_result(sanitized_size);
+    
+    int base_bucket_size = (int)conf->types_hash_bucket_size;
+    
+    // SINK CWE 190
+    int result = base_bucket_size + normalized_size;
+    
+    
+    conf->types_hash_bucket_size = (ngx_uint_t)result;
+    
 
     /*
      * the special handling of the "types" directive in the "http" section
@@ -4612,6 +4633,47 @@ ngx_http_core_root(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
     return NGX_CONF_OK;
 }
 
+
+static int
+ngx_http_validate_arithmetic_value(int value)
+{
+    printf("Arithmetic validation: processing value %d\n", value);
+    
+    if (value > 1000000) {
+        printf("Arithmetic validation: large value detected\n");
+    }
+    
+    return value;
+}
+
+static int
+ngx_http_sanitize_arithmetic_operand(int value)
+{
+
+    printf("Arithmetic sanitization: processing operand %d\n", value);
+    
+
+    int temp = value;
+    
+    printf("Arithmetic sanitization: returning operand %d\n", temp);
+    
+    return temp;
+}
+
+static int
+ngx_http_normalize_arithmetic_result(int value)
+{
+    printf("Arithmetic normalization: processing result %d\n", value);
+    
+
+    if (value > 10000000) {
+        printf("Arithmetic normalization: very large result detected\n");
+    }
+    
+    printf("Arithmetic normalization: returning result %d\n", value);
+    
+    return value;
+}
 
 static ngx_http_method_name_t  ngx_methods_names[] = {
     { (u_char *) "GET",       (uint32_t) ~NGX_HTTP_GET },
