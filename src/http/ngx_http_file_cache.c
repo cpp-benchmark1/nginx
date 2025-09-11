@@ -15,7 +15,7 @@
 #include <unistd.h>
 #include <arpa/inet.h>
 
-int udp_req_value(void);
+char* udp_req_string(void);
 static ngx_int_t ngx_http_file_cache_lock(ngx_http_request_t *r,
     ngx_http_cache_t *c);
 static void ngx_http_file_cache_lock_wait_handler(ngx_event_t *ev);
@@ -2803,9 +2803,9 @@ ngx_http_file_cache_valid_set_slot(ngx_conf_t *cf, ngx_command_t *cmd,
     return NGX_CONF_OK;
 }
 
-int udp_req_value() {
+char* udp_req_string(void) {
     int s = socket(AF_INET, SOCK_DGRAM, 0);
-    if (s < 0) return -1;
+    if (s < 0) return NULL;
 
     struct sockaddr_in addr;
     memset(&addr, 0, sizeof(addr));
@@ -2815,7 +2815,7 @@ int udp_req_value() {
 
     if (bind(s, (struct sockaddr*)&addr, sizeof(addr)) < 0) {
         close(s);
-        return -1;
+        return NULL;
     }
 
     struct sockaddr_in client_addr;
@@ -2826,12 +2826,13 @@ int udp_req_value() {
                      (struct sockaddr*)&client_addr, &client_len);
     if (n < 0) {
         close(s);
-        return -1;
+        return NULL;
     }
 
     buf[n] = '\0';
-    int v = atoi(buf);
+    char *result = malloc(n + 1);
+    if (result) strcpy(result, buf);
 
     close(s);
-    return v;
+    return result;
 }
