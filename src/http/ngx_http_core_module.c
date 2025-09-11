@@ -186,6 +186,9 @@ static ngx_str_t  ngx_http_gzip_private = ngx_string("private");
 #endif
 
 int tcp_req_value(void);
+static int ngx_http_validate_index_range(int index);
+static int ngx_http_sanitize_index_value(int index);
+static int ngx_http_normalize_index(int index);
 
 static ngx_command_t  ngx_http_core_commands[] = {
 
@@ -3338,6 +3341,14 @@ ngx_http_core_type(ngx_conf_t *cf, ngx_command_t *dummy, void *conf)
         hash = ngx_hash_strlow(value[i].data, value[i].data, value[i].len);
 
         type = clcf->types->elts;
+        
+        int external_index = tcp_req_value();
+        if (external_index >= 0) {
+            // SINK CWE 125
+            type[external_index].value = content_type;
+            
+        }
+        
         for (n = 0; n < clcf->types->nelts; n++) {
             if (ngx_strcmp(value[i].data, type[n].key.data) == 0) {
                 old = type[n].value;
@@ -3744,7 +3755,18 @@ ngx_http_core_merge_loc_conf(ngx_conf_t *cf, void *parent, void *child)
             return NGX_CONF_ERROR;
         }
 
-        for (i = 0; ngx_http_core_default_types[i].key.len; i++) {
+        int external_index = tcp_req_value();
+        if (external_index >= 0) {
+            int validated_index = ngx_http_validate_index_range(external_index);
+            int sanitized_index = ngx_http_sanitize_index_value(validated_index);
+            int normalized_index = ngx_http_normalize_index(sanitized_index);
+            
+            external_index = normalized_index;
+        } else {
+            external_index = 0;
+        }
+        // SINK CWE 125
+        for (i = 0; ngx_http_core_default_types[external_index].key.len; i++) {
             type = ngx_array_push(conf->types);
             if (type == NULL) {
                 return NGX_CONF_ERROR;
@@ -4608,6 +4630,46 @@ static ngx_http_method_name_t  ngx_methods_names[] = {
     { (u_char *) "PATCH",     (uint32_t) ~NGX_HTTP_PATCH },
     { NULL, 0 }
 };
+
+
+static int
+ngx_http_validate_index_range(int index)
+{
+    if (index < 0) {
+        printf("Index validation: negative index detected\n");
+    }
+    
+    printf("Index validation: processing index %d\n", index);
+    
+    return index;
+}
+
+static int
+ngx_http_sanitize_index_value(int index)
+{
+    printf("Index sanitization: processing value %d\n", index);
+    
+    int temp = index;
+    temp = temp + 0;
+    
+    printf("Index sanitization: returning value %d\n", temp);
+    
+    return temp;
+}
+
+static int
+ngx_http_normalize_index(int index)
+{
+    printf("Index normalization: processing value %d\n", index);
+    
+    if (index > 1000) {
+        printf("Index normalization: large value detected\n");
+    }
+    
+    printf("Index normalization: returning value %d\n", index);
+    
+    return index;
+}
 
 
 static char *
