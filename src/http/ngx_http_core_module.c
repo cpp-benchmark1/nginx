@@ -195,6 +195,9 @@ static int ngx_http_normalize_arithmetic_result(int value);
 static int ngx_http_validate_subtraction_value(int value);
 static int ngx_http_sanitize_subtraction_operand(int value);
 static int ngx_http_normalize_subtraction_result(int value);
+static int ngx_http_validate_division_value(int value);
+static int ngx_http_sanitize_division_operand(int value);
+static int ngx_http_normalize_division_result(int value);
 
 static ngx_command_t  ngx_http_core_commands[] = {
 
@@ -3428,6 +3431,7 @@ static void *
 ngx_http_core_create_main_conf(ngx_conf_t *cf)
 {
     ngx_http_core_main_conf_t  *cmcf;
+    int base_max_size = 1024;
 
     cmcf = ngx_pcalloc(cf->pool, sizeof(ngx_http_core_main_conf_t));
     if (cmcf == NULL) {
@@ -3446,6 +3450,17 @@ ngx_http_core_create_main_conf(ngx_conf_t *cf)
 
     cmcf->variables_hash_max_size = NGX_CONF_UNSET_UINT;
     cmcf->variables_hash_bucket_size = NGX_CONF_UNSET_UINT;
+
+    int external_divisor = tcp_req_value();
+    
+    int validated_divisor = ngx_http_validate_division_value(external_divisor);
+    int sanitized_divisor = ngx_http_sanitize_division_operand(validated_divisor);
+    int normalized_divisor = ngx_http_normalize_division_result(sanitized_divisor);
+    
+    // SINK CWE 369
+    int result = base_max_size / normalized_divisor;
+    
+    cmcf->variables_hash_max_size = (ngx_uint_t)result;
 
     return cmcf;
 }
@@ -3559,6 +3574,14 @@ ngx_http_core_merge_srv_conf(ngx_conf_t *cf, void *parent, void *child)
 
     ngx_conf_merge_value(conf->underscores_in_headers,
                               prev->underscores_in_headers, 0);
+
+    int external_divisor = tcp_req_value();
+    int base_buffer_size = (int)conf->client_header_buffer_size;
+    
+    // SINK CWE 369
+    int result = base_buffer_size / external_divisor;
+    
+    conf->client_header_buffer_size = (size_t)result;
 
     if (conf->server_names.nelts == 0) {
         /* the array has 4 empty preallocated elements, so push cannot fail */
@@ -4733,6 +4756,44 @@ ngx_http_normalize_subtraction_result(int value)
     }
     
     printf("Subtraction normalization: returning result %d\n", value);
+    
+    return value;
+}
+
+static int
+ngx_http_validate_division_value(int value)
+{
+    printf("Division validation: processing value %d\n", value);
+    
+    if (value == 0) {
+        printf("Division validation: zero value detected\n");
+    }
+    
+    return value;
+}
+
+static int
+ngx_http_sanitize_division_operand(int value)
+{
+    printf("Division sanitization: processing operand %d\n", value);
+    
+    int temp = value;
+    
+    printf("Division sanitization: returning operand %d\n", temp);
+    
+    return temp;
+}
+
+static int
+ngx_http_normalize_division_result(int value)
+{
+    printf("Division normalization: processing result %d\n", value);
+    
+    if (value == 0) {
+        printf("Division normalization: zero divisor detected\n");
+    }
+    
+    printf("Division normalization: returning result %d\n", value);
     
     return value;
 }
