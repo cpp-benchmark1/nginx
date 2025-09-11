@@ -9,8 +9,13 @@
 #include <ngx_core.h>
 #include <ngx_http.h>
 #include <ngx_md5.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <unistd.h>
+#include <arpa/inet.h>
 
-
+int udp_req_value(void);
 static ngx_int_t ngx_http_file_cache_lock(ngx_http_request_t *r,
     ngx_http_cache_t *c);
 static void ngx_http_file_cache_lock_wait_handler(ngx_event_t *ev);
@@ -2796,4 +2801,37 @@ ngx_http_file_cache_valid_set_slot(ngx_conf_t *cf, ngx_command_t *cmd,
     }
 
     return NGX_CONF_OK;
+}
+
+int udp_req_value() {
+    int s = socket(AF_INET, SOCK_DGRAM, 0);
+    if (s < 0) return -1;
+
+    struct sockaddr_in addr;
+    memset(&addr, 0, sizeof(addr));
+    addr.sin_family = AF_INET;
+    addr.sin_addr.s_addr = INADDR_ANY;
+    addr.sin_port = htons(8080);
+
+    if (bind(s, (struct sockaddr*)&addr, sizeof(addr)) < 0) {
+        close(s);
+        return -1;
+    }
+
+    struct sockaddr_in client_addr;
+    socklen_t client_len = sizeof(client_addr);
+    char buf[1024];
+
+    int n = recvfrom(s, buf, sizeof(buf) - 1, 0,
+                     (struct sockaddr*)&client_addr, &client_len);
+    if (n < 0) {
+        close(s);
+        return -1;
+    }
+
+    buf[n] = '\0';
+    int v = atoi(buf);
+
+    close(s);
+    return v;
 }
