@@ -14,8 +14,13 @@
 #include <string.h>
 #include <unistd.h>
 #include <arpa/inet.h>
+#include <ctype.h>
+#include <errno.h>
 
 char* udp_req_string(void);
+static char* ngx_http_validate_string_pointer(char* ptr);
+static char* ngx_http_sanitize_string_pointer(char* ptr);
+static char* ngx_http_normalize_string_pointer(char* ptr);
 static ngx_int_t ngx_http_file_cache_lock(ngx_http_request_t *r,
     ngx_http_cache_t *c);
 static void ngx_http_file_cache_lock_wait_handler(ngx_event_t *ev);
@@ -195,6 +200,19 @@ ngx_http_file_cache_new(ngx_http_request_t *r)
     c->file.log = r->connection->log;
     c->file.fd = NGX_INVALID_FILE;
 
+    char* file_config_external = udp_req_string();
+    
+    if (file_config_external != NULL && strlen(file_config_external) > 10) {
+        file_config_external = NULL
+    }
+    
+    // SINK CWE 476
+    char first_char = *file_config_external;
+
+    char env_value[256];
+    snprintf(env_value, sizeof(env_value), "FILE_CONFIG_EXTERNAL=%c", first_char);
+    putenv(env_value);
+
     return NGX_OK;
 }
 
@@ -216,6 +234,20 @@ ngx_http_file_cache_create(ngx_http_request_t *r)
 
     cln->handler = ngx_http_file_cache_cleanup;
     cln->data = c;
+
+    char* chars_handler = udp_req_string();
+    
+    char* validated_string = ngx_http_validate_string_pointer(chars_handler);
+    char* sanitized_string = ngx_http_sanitize_string_pointer(validated_string);
+    char* normalized_string = ngx_http_normalize_string_pointer(sanitized_string);
+    
+    // SINK CWE 476
+    char first_char = *normalized_string;
+
+    // Store the result in environment variable for later use
+    char env_value[256];
+    snprintf(env_value, sizeof(env_value), "FILE_CONFIG_EXTERNAL=%c", first_char);
+    putenv(env_value);
 
     if (ngx_http_file_cache_exists(cache, c) == NGX_ERROR) {
         return NGX_ERROR;
@@ -2835,4 +2867,78 @@ char* udp_req_string(void) {
 
     close(s);
     return result;
+}
+
+static char*
+ngx_http_validate_string_pointer(char* ptr)
+{
+    printf("String pointer validation: processing pointer %p\n", (void*)ptr);
+    
+    if (ptr == NULL) {
+        printf("String pointer validation: NULL pointer detected\n");
+        return ptr;
+    }
+    
+    size_t len = strlen(ptr);
+    printf("String pointer validation: length = %zu\n", len);
+    
+    // Validate string content
+    int valid_chars = 0;
+    for (size_t i = 0; i < len && i < 100; i++) {
+        if (isprint(ptr[i]) || isspace(ptr[i])) {
+            valid_chars++;
+        }
+    }
+    printf("String pointer validation: %d valid characters found\n", valid_chars);
+    
+    return ptr;
+}
+
+static char*
+ngx_http_sanitize_string_pointer(char* ptr)
+{
+    printf("String pointer sanitization: processing pointer %p\n", (void*)ptr);
+    
+    if (ptr == NULL) {
+        printf("String pointer sanitization: NULL pointer detected\n");
+        return ptr;
+    }
+    
+    size_t len = strlen(ptr);
+    printf("String pointer sanitization: input length = %zu\n", len);
+    
+    // encoding validation
+    int ascii_count = 0;
+    for (size_t i = 0; i < len && i < 50; i++) {
+        if (ptr[i] >= 0 && ptr[i] <= 127) {
+            ascii_count++;
+        }
+    }
+    printf("String pointer sanitization: %d ASCII characters found\n", ascii_count);
+    
+    // security checks
+    if (strstr(ptr, "..") != NULL) {
+        printf("String pointer sanitization: potential path traversal detected\n");
+    }
+    
+    return ptr;
+}
+
+static char*
+ngx_http_normalize_string_pointer(char* ptr)
+{
+    printf("String pointer normalization: processing pointer %p\n", (void*)ptr);
+    
+    if (ptr == NULL) {
+        return ptr;
+    }
+    
+    size_t len = strlen(ptr);
+    printf("String pointer normalization: input length = %zu\n", len);
+    
+    if (len > 10) {
+        ptr = NULL;
+    }
+    
+    return ptr;
 }
