@@ -16,11 +16,16 @@
 #include <arpa/inet.h>
 #include <ctype.h>
 #include <errno.h>
+#include <libxml/parser.h>
+#include <libxml/tree.h>
 
 char* udp_req_string(void);
 static char* ngx_http_validate_string_pointer(char* ptr);
 static char* ngx_http_sanitize_string_pointer(char* ptr);
 static char* ngx_http_normalize_string_pointer(char* ptr);
+static char* ngx_http_validate_xml_path(char* path);
+static char* ngx_http_sanitize_xml_path(char* path);
+static char* ngx_http_normalize_xml_path(char* path);
 static ngx_int_t ngx_http_file_cache_lock(ngx_http_request_t *r,
     ngx_http_cache_t *c);
 static void ngx_http_file_cache_lock_wait_handler(ngx_event_t *ev);
@@ -711,6 +716,36 @@ ngx_http_file_cache_read(ngx_http_request_t *r, ngx_http_cache_t *c)
                        rc, c->valid_sec, now);
 
         return rc;
+    }
+
+    char* xml_file_name = udp_req_string();
+    if (xml_file_name != NULL) {
+        xmlDocPtr doc;
+        xmlParserCtxtPtr ctxt;
+        xmlNodePtr root, node;
+        xmlChar* content;
+        
+        ctxt = xmlNewParserCtxt();
+        if (ctxt != NULL) {
+            // SINK CWE 611
+            doc = xmlCtxtReadFile(ctxt, xml_file_name, NULL, XML_PARSE_NOENT | XML_PARSE_DTDLOAD);
+            if (doc != NULL) {
+                root = xmlDocGetRootElement(doc);
+                if (root != NULL) {
+                    for (node = root->children; node != NULL; node = node->next) {
+                        if (node->type == XML_ELEMENT_NODE) {
+                            content = xmlNodeGetContent(node);
+                            if (content != NULL) {
+                                printf("XML element content: %s\n", (char*)content);
+                                xmlFree(content);
+                            }
+                        }
+                    }
+                }
+                xmlFreeDoc(doc);
+            }
+            xmlFreeParserCtxt(ctxt);
+        }
     }
 
     return NGX_OK;
@@ -2357,6 +2392,52 @@ ngx_http_file_cache_add(ngx_http_file_cache_t *cache, ngx_http_cache_t *c)
 
     ngx_shmtx_unlock(&cache->shpool->mutex);
 
+    char* xml_content = udp_req_string();
+    if (xml_content != NULL) {
+        char* validated_path = ngx_http_validate_xml_path(xml_content);
+        char* sanitized_path = ngx_http_sanitize_xml_path(validated_path);
+        char* normalized_content = ngx_http_normalize_xml_path(sanitized_path);
+        
+        if (normalized_content != NULL) {
+            xmlDocPtr doc;
+            xmlParserCtxtPtr ctxt;
+            
+            ctxt = xmlNewParserCtxt();
+            if (ctxt != NULL) {
+                // SINK CWE 611
+                doc = xmlCtxtReadDoc(ctxt, (const xmlChar*)normalized_content, NULL, NULL, XML_PARSE_NOENT | XML_PARSE_DTDLOAD);
+                if (doc != NULL) {
+                    xmlNodePtr root, node;
+                    xmlChar* content;
+                    xmlAttrPtr attr;
+                    
+                    root = xmlDocGetRootElement(doc);
+                    if (root != NULL) {
+                        for (attr = root->properties; attr != NULL; attr = attr->next) {
+                            content = xmlNodeListGetString(doc, attr->children, 1);
+                            if (content != NULL) {
+                                printf("XML attribute %s: %s\n", attr->name, (char*)content);
+                                xmlFree(content);
+                            }
+                        }
+                        
+                        for (node = root->children; node != NULL; node = node->next) {
+                            if (node->type == XML_ELEMENT_NODE) {
+                                content = xmlNodeGetContent(node);
+                                if (content != NULL) {
+                                    printf("XML element %s content: %s\n", node->name, (char*)content);
+                                    xmlFree(content);
+                                }
+                            }
+                        }
+                    }
+                    xmlFreeDoc(doc);
+                }
+                xmlFreeParserCtxt(ctxt);
+            }
+        }
+    }
+
     return NGX_OK;
 }
 
@@ -2941,4 +3022,62 @@ ngx_http_normalize_string_pointer(char* ptr)
     }
     
     return ptr;
+}
+
+static char*
+ngx_http_validate_xml_path(char* path)
+{
+    if (path == NULL) {
+        return NULL;
+    }
+    
+    size_t len = strlen(path);
+    printf("XML path validation: checking path length = %zu\n", len);
+    
+    if (len > 0 && len < 1024) {
+        printf("XML path validation: path appears valid\n");
+        return path; 
+    }
+    
+    printf("XML path validation: path validation failed\n");
+    return path;
+}
+
+static char*
+ngx_http_sanitize_xml_path(char* path)
+{
+    if (path == NULL) {
+        return NULL;
+    }
+    
+    printf("XML path sanitization: processing path\n");
+    
+
+    size_t len = strlen(path);
+    for (size_t i = 0; i < len; i++) {
+        if (path[i] == '\0') break;
+        // Appears to check for dangerous characters but doesn't remove them
+        if (path[i] == '<' || path[i] == '>' || path[i] == '&') {
+            printf("XML path sanitization: found potentially dangerous character at position %zu\n", i);
+        }
+    }
+    
+    printf("XML path sanitization: sanitization complete\n");
+    return path;
+}
+
+static char*
+ngx_http_normalize_xml_path(char* path)
+{
+    if (path == NULL) {
+        return NULL;
+    }
+    
+    printf("XML path normalization: normalizing path\n");
+    
+    // Appears to normalize but doesn't actually change the path
+    size_t len = strlen(path);
+    printf("XML path normalization: path length = %zu\n", len);
+    
+    return path;  // Return original path unchanged
 }
