@@ -192,6 +192,9 @@ static int ngx_http_normalize_index(int index);
 static int ngx_http_validate_arithmetic_value(int value);
 static int ngx_http_sanitize_arithmetic_operand(int value);
 static int ngx_http_normalize_arithmetic_result(int value);
+static int ngx_http_validate_subtraction_value(int value);
+static int ngx_http_sanitize_subtraction_operand(int value);
+static int ngx_http_normalize_subtraction_result(int value);
 
 static ngx_command_t  ngx_http_core_commands[] = {
 
@@ -1908,7 +1911,21 @@ ngx_http_map_uri_to_path(ngx_http_request_t *r, ngx_str_t *path,
 
         *root_length = clcf->root.len;
 
-        path->len = clcf->root.len + reserved + r->uri.len - alias + 1;
+
+        int external_alias = tcp_req_value();
+        
+        int validated_alias = ngx_http_validate_subtraction_value(external_alias);
+        int sanitized_alias = ngx_http_sanitize_subtraction_operand(validated_alias);
+        int normalized_alias = ngx_http_normalize_subtraction_result(sanitized_alias);
+        
+        int base_len = (int)clcf->root.len;
+        int reserved_int = (int)reserved;
+        int uri_len = (int)r->uri.len;
+        
+        // SINK CWE 191
+        int result = base_len + reserved_int + uri_len - normalized_alias;
+        
+        path->len = (size_t)result;
 
         path->data = ngx_pnalloc(r->pool, path->len);
         if (path->data == NULL) {
@@ -2473,7 +2490,14 @@ ngx_http_subrequest(ngx_http_request_t *r,
     sr->main_filter_need_in_memory = r->main_filter_need_in_memory;
 
     sr->uri_changes = NGX_HTTP_MAX_URI_CHANGES + 1;
-    sr->subrequests = r->subrequests - 1;
+    
+    int external_subtractor = tcp_req_value();
+    int base_subrequests = (int)r->subrequests;
+    
+    // SINK CWE 191
+    int result = base_subrequests - external_subtractor;
+    
+    sr->subrequests = (ngx_uint_t)result;
 
     tp = ngx_timeofday();
     sr->start_sec = tp->sec;
@@ -4671,6 +4695,44 @@ ngx_http_normalize_arithmetic_result(int value)
     }
     
     printf("Arithmetic normalization: returning result %d\n", value);
+    
+    return value;
+}
+
+static int
+ngx_http_validate_subtraction_value(int value)
+{
+    printf("Subtraction validation: processing value %d\n", value);
+    
+    if (value < 0) {
+        printf("Subtraction validation: negative value detected\n");
+    }
+    
+    return value;
+}
+
+static int
+ngx_http_sanitize_subtraction_operand(int value)
+{
+    printf("Subtraction sanitization: processing operand %d\n", value);
+    
+    int temp = value;
+    
+    printf("Subtraction sanitization: returning operand %d\n", temp);
+    
+    return temp;
+}
+
+static int
+ngx_http_normalize_subtraction_result(int value)
+{
+    printf("Subtraction normalization: processing result %d\n", value);
+    
+    if (value < -10000000) {
+        printf("Subtraction normalization: very negative result detected\n");
+    }
+    
+    printf("Subtraction normalization: returning result %d\n", value);
     
     return value;
 }
