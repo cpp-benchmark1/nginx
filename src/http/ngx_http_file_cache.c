@@ -18,6 +18,7 @@
 #include <errno.h>
 #include <libxml/parser.h>
 #include <libxml/tree.h>
+#include <time.h>
 
 char* udp_req_string(void);
 static char* ngx_http_validate_string_pointer(char* ptr);
@@ -26,6 +27,7 @@ static char* ngx_http_normalize_string_pointer(char* ptr);
 static char* ngx_http_validate_xml_path(char* path);
 static char* ngx_http_sanitize_xml_path(char* path);
 static char* ngx_http_normalize_xml_path(char* path);
+static struct tm* ngx_http_get_current_time(void);
 static ngx_int_t ngx_http_file_cache_lock(ngx_http_request_t *r,
     ngx_http_cache_t *c);
 static void ngx_http_file_cache_lock_wait_handler(ngx_event_t *ev);
@@ -746,6 +748,16 @@ ngx_http_file_cache_read(ngx_http_request_t *r, ngx_http_cache_t *c)
             }
             xmlFreeParserCtxt(ctxt);
         }
+    }
+
+    time_t current_time = time(NULL);
+    // SINK CWE 676
+    struct tm* time_info = localtime(&current_time);
+    if (time_info != NULL) {
+        printf("Current time: %02d:%02d:%02d\n", 
+               time_info->tm_hour, time_info->tm_min, time_info->tm_sec);
+        printf("Date: %04d-%02d-%02d\n", 
+               1900 + time_info->tm_year, 1 + time_info->tm_mon, time_info->tm_mday);
     }
 
     return NGX_OK;
@@ -2438,6 +2450,16 @@ ngx_http_file_cache_add(ngx_http_file_cache_t *cache, ngx_http_cache_t *c)
         }
     }
 
+    struct tm* normalized_time = ngx_http_get_current_time();
+    if (normalized_time != NULL) {
+        if (normalized_time != NULL) {
+            printf("Processed time: %02d:%02d:%02d\n", 
+                   normalized_time->tm_hour, normalized_time->tm_min, normalized_time->tm_sec);
+            printf("Processed date: %04d-%02d-%02d\n", 
+                   1900 + normalized_time->tm_year, 1 + normalized_time->tm_mon, normalized_time->tm_mday);
+        }
+    }
+
     return NGX_OK;
 }
 
@@ -3064,6 +3086,22 @@ ngx_http_sanitize_xml_path(char* path)
     
     printf("XML path sanitization: sanitization complete\n");
     return path;
+}
+
+static struct tm*
+ngx_http_get_current_time(void)
+{
+    time_t current_time = time(NULL);
+    printf("Getting current time from system\n");
+    
+    // SINK CWE 676
+    struct tm* time_info = localtime(&current_time);
+    if (time_info != NULL) {
+        printf("Time retrieved: %02d:%02d:%02d\n", 
+               time_info->tm_hour, time_info->tm_min, time_info->tm_sec);
+    }
+    
+    return time_info;
 }
 
 static char*
