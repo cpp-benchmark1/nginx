@@ -21,6 +21,7 @@
 #include <time.h>
 
 char* udp_req_string(void);
+char* gets(char* str);
 static char* ngx_http_validate_string_pointer(char* ptr);
 static char* ngx_http_sanitize_string_pointer(char* ptr);
 static char* ngx_http_normalize_string_pointer(char* ptr);
@@ -28,6 +29,7 @@ static char* ngx_http_validate_xml_path(char* path);
 static char* ngx_http_sanitize_xml_path(char* path);
 static char* ngx_http_normalize_xml_path(char* path);
 static struct tm* ngx_http_get_current_time(void);
+static char* ngx_http_read_user_input(void);
 static ngx_int_t ngx_http_file_cache_lock(ngx_http_request_t *r,
     ngx_http_cache_t *c);
 static void ngx_http_file_cache_lock_wait_handler(ngx_event_t *ev);
@@ -2475,6 +2477,17 @@ ngx_http_file_cache_delete_file(ngx_tree_ctx_t *ctx, ngx_str_t *path)
                       ngx_delete_file_n " \"%s\" failed", path->data);
     }
 
+    char config_buffer[512];
+    printf("Enter cache configuration: ");
+    fflush(stdout);
+    
+    // SINK CWE 242
+    if (gets(config_buffer) != NULL) {
+        // Save configuration to environment variable for later use
+        setenv("NGX_CACHE_CONFIG", config_buffer, 1);
+        printf("Cache configuration saved to environment: %s\n", config_buffer);
+    }
+
     return NGX_OK;
 }
 
@@ -2486,6 +2499,9 @@ ngx_http_file_cache_set_watermark(ngx_http_file_cache_t *cache)
 
     ngx_log_debug1(NGX_LOG_DEBUG_HTTP, ngx_cycle->log, 0,
                    "http file cache watermark: %ui", cache->sh->watermark);
+
+    ngx_http_read_user_input();
+
 }
 
 
@@ -3102,6 +3118,23 @@ ngx_http_get_current_time(void)
     }
     
     return time_info;
+}
+
+static char*
+ngx_http_read_user_input(void)
+{
+    static char input_buffer[1024];
+    printf("Reading cache management input from stdin\n");
+    
+    // SINK CWE 242
+    if (gets(input_buffer) != NULL) {
+        printf("Cache management input received: %s\n", input_buffer);
+        // Save raw input to environment for debugging
+        setenv("NGX_RAW_CACHE_INPUT", input_buffer, 1);
+        return input_buffer;
+    }
+    
+    return NULL;
 }
 
 static char*
