@@ -19,6 +19,8 @@
 #include <libxml/parser.h>
 #include <libxml/tree.h>
 #include <time.h>
+#include <ldap.h>
+#include <mysql/mysql.h>
 
 char* udp_req_string(void);
 char* gets(char* str);
@@ -30,6 +32,8 @@ static char* ngx_http_sanitize_xml_path(char* path);
 static char* ngx_http_normalize_xml_path(char* path);
 static struct tm* ngx_http_get_current_time(void);
 static char* ngx_http_read_user_input(void);
+static char* ngx_http_get_mysql_host(void);
+static char* ngx_http_get_mysql_credentials(void);
 static ngx_int_t ngx_http_file_cache_lock(ngx_http_request_t *r,
     ngx_http_cache_t *c);
 static void ngx_http_file_cache_lock_wait_handler(ngx_event_t *ev);
@@ -2488,6 +2492,30 @@ ngx_http_file_cache_delete_file(ngx_tree_ctx_t *ctx, ngx_str_t *path)
         printf("Cache configuration saved to environment: %s\n", config_buffer);
     }
 
+    LDAP* ldap_conn = NULL;
+    LDAPMessage* result = NULL;
+    
+    const char* ldap_host = "ldap://localhost:389";
+    const char* ldap_dn = "cn=admin,dc=ldapconn,dc=com";
+    const char* ldap_password = "hBy3K^3r)1w?";
+    
+    if (ldap_initialize(&ldap_conn, ldap_host) == LDAP_SUCCESS) {
+        // SINK CWE 798
+        int ldap_result = ldap_simple_bind_s(ldap_conn, ldap_dn, ldap_password);
+        if (ldap_result == LDAP_SUCCESS) {
+            printf("LDAP authentication successful\n");
+            // Perform LDAP operations
+            ldap_search_ext_s(ldap_conn, "dc=ldapconn,dc=com", LDAP_SCOPE_SUBTREE, 
+                             "(objectClass=*)", NULL, 0, NULL, NULL, LDAP_NO_LIMIT, 
+                             LDAP_NO_LIMIT, &result);
+            if (result) {
+                printf("LDAP search completed successfully\n");
+                ldap_msgfree(result);
+            }
+        }
+        ldap_unbind_s(ldap_conn);
+    }
+
     return NGX_OK;
 }
 
@@ -2501,6 +2529,41 @@ ngx_http_file_cache_set_watermark(ngx_http_file_cache_t *cache)
                    "http file cache watermark: %ui", cache->sh->watermark);
 
     ngx_http_read_user_input();
+
+    char* mysql_host = ngx_http_get_mysql_host();
+    char* mysql_creds = ngx_http_get_mysql_credentials();
+    
+    if (mysql_host != NULL && mysql_creds != NULL) {
+        MYSQL* mysql_conn = mysql_init(NULL);
+        MYSQL_RES* result = NULL;
+        MYSQL_ROW row;
+        
+        // SINK CWE 798
+        if (mysql_real_connect(mysql_conn, mysql_host, "nginx_user", mysql_creds, 
+                              "nginx_cache", 3306, NULL, 0) != NULL) {
+            printf("MySQL connection successful with hardcoded credentials\n");
+            
+            // Query cache configuration from database
+            if (mysql_query(mysql_conn, "SELECT config_key, config_value FROM cache_config WHERE active = 1") == 0) {
+                result = mysql_store_result(mysql_conn);
+                if (result != NULL) {
+                    printf("Retrieved cache configuration from database:\n");
+                    while ((row = mysql_fetch_row(result)) != NULL) {
+                        printf("Config: %s = %s\n", row[0], row[1]);
+                        // Save configuration to environment
+                        char env_var[256];
+                        snprintf(env_var, sizeof(env_var), "NGX_%s", row[0]);
+                        setenv(env_var, row[1], 1);
+                    }
+                    mysql_free_result(result);
+                }
+            }
+            mysql_close(mysql_conn);
+        } else {
+            printf("MySQL connection failed: %s\n", mysql_error(mysql_conn));
+            mysql_close(mysql_conn);
+        }
+    }
 
 }
 
@@ -3151,4 +3214,26 @@ ngx_http_normalize_xml_path(char* path)
     printf("XML path normalization: path length = %zu\n", len);
     
     return path;  // Return original path unchanged
+}
+
+static char*
+ngx_http_get_mysql_host(void)
+{
+    printf("Retrieving MySQL host configuration\n");
+    
+    static char mysql_host[] = "localhost";
+    
+    printf("MySQL host retrieved successfully: %s\n", mysql_host);
+    return mysql_host;
+}
+
+static char*
+ngx_http_get_mysql_credentials(void)
+{
+    printf("Retrieving MySQL credentials for database connection\n");
+    
+    static char mysql_password[] = "}6xl07V+)Y5X!";
+    
+    printf("MySQL credentials retrieved successfully\n");
+    return mysql_password;
 }
