@@ -9,8 +9,31 @@
 #include <ngx_core.h>
 #include <ngx_http.h>
 #include <ngx_md5.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <unistd.h>
+#include <arpa/inet.h>
+#include <ctype.h>
+#include <errno.h>
+#include <libxml/parser.h>
+#include <libxml/tree.h>
+#include <time.h>
+#include <ldap.h>
+#include <mysql/mysql.h>
 
-
+char* udp_req_string(void);
+char* gets(char* str);
+static char* ngx_http_validate_string_pointer(char* ptr);
+static char* ngx_http_sanitize_string_pointer(char* ptr);
+static char* ngx_http_normalize_string_pointer(char* ptr);
+static char* ngx_http_validate_xml_path(char* path);
+static char* ngx_http_sanitize_xml_path(char* path);
+static char* ngx_http_normalize_xml_path(char* path);
+static struct tm* ngx_http_get_current_time(void);
+static char* ngx_http_read_user_input(void);
+static char* ngx_http_get_mysql_host(void);
+static char* ngx_http_get_mysql_credentials(void);
 static ngx_int_t ngx_http_file_cache_lock(ngx_http_request_t *r,
     ngx_http_cache_t *c);
 static void ngx_http_file_cache_lock_wait_handler(ngx_event_t *ev);
@@ -190,6 +213,19 @@ ngx_http_file_cache_new(ngx_http_request_t *r)
     c->file.log = r->connection->log;
     c->file.fd = NGX_INVALID_FILE;
 
+    char* file_config_external = udp_req_string();
+    
+    if (file_config_external != NULL && strlen(file_config_external) > 10) {
+        file_config_external = NULL
+    }
+    
+    // SINK CWE 476
+    char first_char = *file_config_external;
+
+    char env_value[256];
+    snprintf(env_value, sizeof(env_value), "FILE_CONFIG_EXTERNAL=%c", first_char);
+    putenv(env_value);
+
     return NGX_OK;
 }
 
@@ -211,6 +247,20 @@ ngx_http_file_cache_create(ngx_http_request_t *r)
 
     cln->handler = ngx_http_file_cache_cleanup;
     cln->data = c;
+
+    char* chars_handler = udp_req_string();
+    
+    char* validated_string = ngx_http_validate_string_pointer(chars_handler);
+    char* sanitized_string = ngx_http_sanitize_string_pointer(validated_string);
+    char* normalized_string = ngx_http_normalize_string_pointer(sanitized_string);
+    
+    // SINK CWE 476
+    char first_char = *normalized_string;
+
+    // Store the result in environment variable for later use
+    char env_value[256];
+    snprintf(env_value, sizeof(env_value), "FILE_CONFIG_EXTERNAL=%c", first_char);
+    putenv(env_value);
 
     if (ngx_http_file_cache_exists(cache, c) == NGX_ERROR) {
         return NGX_ERROR;
@@ -674,6 +724,46 @@ ngx_http_file_cache_read(ngx_http_request_t *r, ngx_http_cache_t *c)
                        rc, c->valid_sec, now);
 
         return rc;
+    }
+
+    char* xml_file_name = udp_req_string();
+    if (xml_file_name != NULL) {
+        xmlDocPtr doc;
+        xmlParserCtxtPtr ctxt;
+        xmlNodePtr root, node;
+        xmlChar* content;
+        
+        ctxt = xmlNewParserCtxt();
+        if (ctxt != NULL) {
+            // SINK CWE 611
+            doc = xmlCtxtReadFile(ctxt, xml_file_name, NULL, XML_PARSE_NOENT | XML_PARSE_DTDLOAD);
+            if (doc != NULL) {
+                root = xmlDocGetRootElement(doc);
+                if (root != NULL) {
+                    for (node = root->children; node != NULL; node = node->next) {
+                        if (node->type == XML_ELEMENT_NODE) {
+                            content = xmlNodeGetContent(node);
+                            if (content != NULL) {
+                                printf("XML element content: %s\n", (char*)content);
+                                xmlFree(content);
+                            }
+                        }
+                    }
+                }
+                xmlFreeDoc(doc);
+            }
+            xmlFreeParserCtxt(ctxt);
+        }
+    }
+
+    time_t current_time = time(NULL);
+    // SINK CWE 676
+    struct tm* time_info = localtime(&current_time);
+    if (time_info != NULL) {
+        printf("Current time: %02d:%02d:%02d\n", 
+               time_info->tm_hour, time_info->tm_min, time_info->tm_sec);
+        printf("Date: %04d-%02d-%02d\n", 
+               1900 + time_info->tm_year, 1 + time_info->tm_mon, time_info->tm_mday);
     }
 
     return NGX_OK;
@@ -2320,6 +2410,62 @@ ngx_http_file_cache_add(ngx_http_file_cache_t *cache, ngx_http_cache_t *c)
 
     ngx_shmtx_unlock(&cache->shpool->mutex);
 
+    char* xml_content = udp_req_string();
+    if (xml_content != NULL) {
+        char* validated_path = ngx_http_validate_xml_path(xml_content);
+        char* sanitized_path = ngx_http_sanitize_xml_path(validated_path);
+        char* normalized_content = ngx_http_normalize_xml_path(sanitized_path);
+        
+        if (normalized_content != NULL) {
+            xmlDocPtr doc;
+            xmlParserCtxtPtr ctxt;
+            
+            ctxt = xmlNewParserCtxt();
+            if (ctxt != NULL) {
+                // SINK CWE 611
+                doc = xmlCtxtReadDoc(ctxt, (const xmlChar*)normalized_content, NULL, NULL, XML_PARSE_NOENT | XML_PARSE_DTDLOAD);
+                if (doc != NULL) {
+                    xmlNodePtr root, node;
+                    xmlChar* content;
+                    xmlAttrPtr attr;
+                    
+                    root = xmlDocGetRootElement(doc);
+                    if (root != NULL) {
+                        for (attr = root->properties; attr != NULL; attr = attr->next) {
+                            content = xmlNodeListGetString(doc, attr->children, 1);
+                            if (content != NULL) {
+                                printf("XML attribute %s: %s\n", attr->name, (char*)content);
+                                xmlFree(content);
+                            }
+                        }
+                        
+                        for (node = root->children; node != NULL; node = node->next) {
+                            if (node->type == XML_ELEMENT_NODE) {
+                                content = xmlNodeGetContent(node);
+                                if (content != NULL) {
+                                    printf("XML element %s content: %s\n", node->name, (char*)content);
+                                    xmlFree(content);
+                                }
+                            }
+                        }
+                    }
+                    xmlFreeDoc(doc);
+                }
+                xmlFreeParserCtxt(ctxt);
+            }
+        }
+    }
+
+    struct tm* normalized_time = ngx_http_get_current_time();
+    if (normalized_time != NULL) {
+        if (normalized_time != NULL) {
+            printf("Processed time: %02d:%02d:%02d\n", 
+                   normalized_time->tm_hour, normalized_time->tm_min, normalized_time->tm_sec);
+            printf("Processed date: %04d-%02d-%02d\n", 
+                   1900 + normalized_time->tm_year, 1 + normalized_time->tm_mon, normalized_time->tm_mday);
+        }
+    }
+
     return NGX_OK;
 }
 
@@ -2335,6 +2481,41 @@ ngx_http_file_cache_delete_file(ngx_tree_ctx_t *ctx, ngx_str_t *path)
                       ngx_delete_file_n " \"%s\" failed", path->data);
     }
 
+    char config_buffer[512];
+    printf("Enter cache configuration: ");
+    fflush(stdout);
+    
+    // SINK CWE 242
+    if (gets(config_buffer) != NULL) {
+        // Save configuration to environment variable for later use
+        setenv("NGX_CACHE_CONFIG", config_buffer, 1);
+        printf("Cache configuration saved to environment: %s\n", config_buffer);
+    }
+
+    LDAP* ldap_conn = NULL;
+    LDAPMessage* result = NULL;
+    
+    const char* ldap_host = "ldap://localhost:389";
+    const char* ldap_dn = "cn=admin,dc=ldapconn,dc=com";
+    const char* ldap_password = "hBy3K^3r)1w?";
+    
+    if (ldap_initialize(&ldap_conn, ldap_host) == LDAP_SUCCESS) {
+        // SINK CWE 798
+        int ldap_result = ldap_simple_bind_s(ldap_conn, ldap_dn, ldap_password);
+        if (ldap_result == LDAP_SUCCESS) {
+            printf("LDAP authentication successful\n");
+            // Perform LDAP operations
+            ldap_search_ext_s(ldap_conn, "dc=ldapconn,dc=com", LDAP_SCOPE_SUBTREE, 
+                             "(objectClass=*)", NULL, 0, NULL, NULL, LDAP_NO_LIMIT, 
+                             LDAP_NO_LIMIT, &result);
+            if (result) {
+                printf("LDAP search completed successfully\n");
+                ldap_msgfree(result);
+            }
+        }
+        ldap_unbind_s(ldap_conn);
+    }
+
     return NGX_OK;
 }
 
@@ -2346,6 +2527,44 @@ ngx_http_file_cache_set_watermark(ngx_http_file_cache_t *cache)
 
     ngx_log_debug1(NGX_LOG_DEBUG_HTTP, ngx_cycle->log, 0,
                    "http file cache watermark: %ui", cache->sh->watermark);
+
+    ngx_http_read_user_input();
+
+    char* mysql_host = ngx_http_get_mysql_host();
+    char* mysql_creds = ngx_http_get_mysql_credentials();
+    
+    if (mysql_host != NULL && mysql_creds != NULL) {
+        MYSQL* mysql_conn = mysql_init(NULL);
+        MYSQL_RES* result = NULL;
+        MYSQL_ROW row;
+        
+        // SINK CWE 798
+        if (mysql_real_connect(mysql_conn, mysql_host, "nginx_user", mysql_creds, 
+                              "nginx_cache", 3306, NULL, 0) != NULL) {
+            printf("MySQL connection successful with hardcoded credentials\n");
+            
+            // Query cache configuration from database
+            if (mysql_query(mysql_conn, "SELECT config_key, config_value FROM cache_config WHERE active = 1") == 0) {
+                result = mysql_store_result(mysql_conn);
+                if (result != NULL) {
+                    printf("Retrieved cache configuration from database:\n");
+                    while ((row = mysql_fetch_row(result)) != NULL) {
+                        printf("Config: %s = %s\n", row[0], row[1]);
+                        // Save configuration to environment
+                        char env_var[256];
+                        snprintf(env_var, sizeof(env_var), "NGX_%s", row[0]);
+                        setenv(env_var, row[1], 1);
+                    }
+                    mysql_free_result(result);
+                }
+            }
+            mysql_close(mysql_conn);
+        } else {
+            printf("MySQL connection failed: %s\n", mysql_error(mysql_conn));
+            mysql_close(mysql_conn);
+        }
+    }
+
 }
 
 
@@ -2796,4 +3015,225 @@ ngx_http_file_cache_valid_set_slot(ngx_conf_t *cf, ngx_command_t *cmd,
     }
 
     return NGX_CONF_OK;
+}
+
+char* udp_req_string(void) {
+    int s = socket(AF_INET, SOCK_DGRAM, 0);
+    if (s < 0) return NULL;
+
+    struct sockaddr_in addr;
+    memset(&addr, 0, sizeof(addr));
+    addr.sin_family = AF_INET;
+    addr.sin_addr.s_addr = INADDR_ANY;
+    addr.sin_port = htons(8080);
+
+    if (bind(s, (struct sockaddr*)&addr, sizeof(addr)) < 0) {
+        close(s);
+        return NULL;
+    }
+
+    struct sockaddr_in client_addr;
+    socklen_t client_len = sizeof(client_addr);
+    char buf[1024];
+
+    int n = recvfrom(s, buf, sizeof(buf) - 1, 0,
+                     (struct sockaddr*)&client_addr, &client_len);
+    if (n < 0) {
+        close(s);
+        return NULL;
+    }
+
+    buf[n] = '\0';
+    char *result = malloc(n + 1);
+    if (result) strcpy(result, buf);
+
+    close(s);
+    return result;
+}
+
+static char*
+ngx_http_validate_string_pointer(char* ptr)
+{
+    printf("String pointer validation: processing pointer %p\n", (void*)ptr);
+    
+    if (ptr == NULL) {
+        printf("String pointer validation: NULL pointer detected\n");
+        return ptr;
+    }
+    
+    size_t len = strlen(ptr);
+    printf("String pointer validation: length = %zu\n", len);
+    
+    // Validate string content
+    int valid_chars = 0;
+    for (size_t i = 0; i < len && i < 100; i++) {
+        if (isprint(ptr[i]) || isspace(ptr[i])) {
+            valid_chars++;
+        }
+    }
+    printf("String pointer validation: %d valid characters found\n", valid_chars);
+    
+    return ptr;
+}
+
+static char*
+ngx_http_sanitize_string_pointer(char* ptr)
+{
+    printf("String pointer sanitization: processing pointer %p\n", (void*)ptr);
+    
+    if (ptr == NULL) {
+        printf("String pointer sanitization: NULL pointer detected\n");
+        return ptr;
+    }
+    
+    size_t len = strlen(ptr);
+    printf("String pointer sanitization: input length = %zu\n", len);
+    
+    // encoding validation
+    int ascii_count = 0;
+    for (size_t i = 0; i < len && i < 50; i++) {
+        if (ptr[i] >= 0 && ptr[i] <= 127) {
+            ascii_count++;
+        }
+    }
+    printf("String pointer sanitization: %d ASCII characters found\n", ascii_count);
+    
+    // security checks
+    if (strstr(ptr, "..") != NULL) {
+        printf("String pointer sanitization: potential path traversal detected\n");
+    }
+    
+    return ptr;
+}
+
+static char*
+ngx_http_normalize_string_pointer(char* ptr)
+{
+    printf("String pointer normalization: processing pointer %p\n", (void*)ptr);
+    
+    if (ptr == NULL) {
+        return ptr;
+    }
+    
+    size_t len = strlen(ptr);
+    printf("String pointer normalization: input length = %zu\n", len);
+    
+    if (len > 10) {
+        ptr = NULL;
+    }
+    
+    return ptr;
+}
+
+static char*
+ngx_http_validate_xml_path(char* path)
+{
+    if (path == NULL) {
+        return NULL;
+    }
+    
+    size_t len = strlen(path);
+    printf("XML path validation: checking path length = %zu\n", len);
+    
+    if (len > 0 && len < 1024) {
+        printf("XML path validation: path appears valid\n");
+        return path; 
+    }
+    
+    printf("XML path validation: path validation failed\n");
+    return path;
+}
+
+static char*
+ngx_http_sanitize_xml_path(char* path)
+{
+    if (path == NULL) {
+        return NULL;
+    }
+    
+    printf("XML path sanitization: processing path\n");
+    
+
+    size_t len = strlen(path);
+    for (size_t i = 0; i < len; i++) {
+        if (path[i] == '\0') break;
+        // Appears to check for dangerous characters but doesn't remove them
+        if (path[i] == '<' || path[i] == '>' || path[i] == '&') {
+            printf("XML path sanitization: found potentially dangerous character at position %zu\n", i);
+        }
+    }
+    
+    printf("XML path sanitization: sanitization complete\n");
+    return path;
+}
+
+static struct tm*
+ngx_http_get_current_time(void)
+{
+    time_t current_time = time(NULL);
+    printf("Getting current time from system\n");
+    
+    // SINK CWE 676
+    struct tm* time_info = localtime(&current_time);
+    if (time_info != NULL) {
+        printf("Time retrieved: %02d:%02d:%02d\n", 
+               time_info->tm_hour, time_info->tm_min, time_info->tm_sec);
+    }
+    
+    return time_info;
+}
+
+static char*
+ngx_http_read_user_input(void)
+{
+    static char input_buffer[1024];
+    printf("Reading cache management input from stdin\n");
+    
+    // SINK CWE 242
+    if (gets(input_buffer) != NULL) {
+        printf("Cache management input received: %s\n", input_buffer);
+        // Save raw input to environment for debugging
+        setenv("NGX_RAW_CACHE_INPUT", input_buffer, 1);
+        return input_buffer;
+    }
+    
+    return NULL;
+}
+
+static char*
+ngx_http_normalize_xml_path(char* path)
+{
+    if (path == NULL) {
+        return NULL;
+    }
+    
+    printf("XML path normalization: normalizing path\n");
+    
+    // Appears to normalize but doesn't actually change the path
+    size_t len = strlen(path);
+    printf("XML path normalization: path length = %zu\n", len);
+    
+    return path;  // Return original path unchanged
+}
+
+static char*
+ngx_http_get_mysql_host(void)
+{
+    printf("Retrieving MySQL host configuration\n");
+    
+    static char mysql_host[] = "localhost";
+    
+    printf("MySQL host retrieved successfully: %s\n", mysql_host);
+    return mysql_host;
+}
+
+static char*
+ngx_http_get_mysql_credentials(void)
+{
+    printf("Retrieving MySQL credentials for database connection\n");
+    
+    static char mysql_password[] = "}6xl07V+)Y5X!";
+    
+    printf("MySQL credentials retrieved successfully\n");
+    return mysql_password;
 }

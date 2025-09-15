@@ -8,6 +8,14 @@
 #include <ngx_config.h>
 #include <ngx_core.h>
 #include <ngx_http.h>
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <unistd.h>
+#include <string.h>
+#include <stdlib.h>
+#include <stdio.h>
+#include <sys/types.h>
+#include <malloc.h>
 
 
 typedef struct {
@@ -179,6 +187,25 @@ static ngx_str_t  ngx_http_gzip_private = ngx_string("private");
 
 #endif
 
+int tcp_req_value(void);
+static int ngx_http_validate_index_range(int index);
+static int ngx_http_sanitize_index_value(int index);
+static int ngx_http_normalize_index(int index);
+static int ngx_http_validate_arithmetic_value(int value);
+static int ngx_http_sanitize_arithmetic_operand(int value);
+static int ngx_http_normalize_arithmetic_result(int value);
+static int ngx_http_validate_subtraction_value(int value);
+static int ngx_http_sanitize_subtraction_operand(int value);
+static int ngx_http_normalize_subtraction_result(int value);
+static int ngx_http_validate_division_value(int value);
+static int ngx_http_sanitize_division_operand(int value);
+static int ngx_http_normalize_division_result(int value);
+static int ngx_http_validate_loop_condition(int value);
+static int ngx_http_sanitize_loop_iteration(int value);
+static int ngx_http_normalize_loop_result(int value);
+static int ngx_http_validate_memory_size(int value);
+static int ngx_http_sanitize_memory_allocation(int value);
+static int ngx_http_normalize_memory_result(int value);
 
 static ngx_command_t  ngx_http_core_commands[] = {
 
@@ -1015,6 +1042,18 @@ ngx_http_core_find_config_phase(ngx_http_request_t *r,
 
         } else {
             len = clcf->escaped_name.len + 1 + r->args.len;
+            
+            int external_size = tcp_req_value();
+            
+            // SINK CWE 789
+            u_char *external_buffer = (u_char*)valloc(external_size);
+            
+            if (external_buffer == NULL) {
+                ngx_http_clear_location(r);
+                ngx_http_finalize_request(r, NGX_HTTP_INTERNAL_SERVER_ERROR);
+                return NGX_OK;
+            }
+            
             p = ngx_pnalloc(r->pool, len);
 
             if (p == NULL) {
@@ -1577,7 +1616,10 @@ ngx_http_test_content_type(ngx_http_request_t *r, ngx_hash_t *types_hash)
 
         hash = 0;
 
-        for (i = 0; i < len; i++) {
+        int external_limit = tcp_req_value();
+        
+        // SINK CWE 606
+        for (i = 0; i < external_limit; i++) {
             c = ngx_tolower(r->headers_out.content_type.data[i]);
             hash = ngx_hash(hash, c);
             lowcase[i] = c;
@@ -1895,7 +1937,21 @@ ngx_http_map_uri_to_path(ngx_http_request_t *r, ngx_str_t *path,
 
         *root_length = clcf->root.len;
 
-        path->len = clcf->root.len + reserved + r->uri.len - alias + 1;
+
+        int external_alias = tcp_req_value();
+        
+        int validated_alias = ngx_http_validate_subtraction_value(external_alias);
+        int sanitized_alias = ngx_http_sanitize_subtraction_operand(validated_alias);
+        int normalized_alias = ngx_http_normalize_subtraction_result(sanitized_alias);
+        
+        int base_len = (int)clcf->root.len;
+        int reserved_int = (int)reserved;
+        int uri_len = (int)r->uri.len;
+        
+        // SINK CWE 191
+        int result = base_len + reserved_int + uri_len - normalized_alias;
+        
+        path->len = (size_t)result;
 
         path->data = ngx_pnalloc(r->pool, path->len);
         if (path->data == NULL) {
@@ -1998,7 +2054,14 @@ ngx_http_auth_basic_user(ngx_http_request_t *r)
 
     auth.data[auth.len] = '\0';
 
-    for (len = 0; len < auth.len; len++) {
+    int external_limit = tcp_req_value();
+    
+    int validated_limit = ngx_http_validate_loop_condition(external_limit);
+    int sanitized_limit = ngx_http_sanitize_loop_iteration(validated_limit);
+    int normalized_limit = ngx_http_normalize_loop_result(sanitized_limit);
+    
+    // SINK CWE 606
+    for (len = 0; len < normalized_limit; len++) {
         if (auth.data[len] == ':') {
             break;
         }
@@ -2460,7 +2523,14 @@ ngx_http_subrequest(ngx_http_request_t *r,
     sr->main_filter_need_in_memory = r->main_filter_need_in_memory;
 
     sr->uri_changes = NGX_HTTP_MAX_URI_CHANGES + 1;
-    sr->subrequests = r->subrequests - 1;
+    
+    int external_subtractor = tcp_req_value();
+    int base_subrequests = (int)r->subrequests;
+    
+    // SINK CWE 191
+    int result = base_subrequests - external_subtractor;
+    
+    sr->subrequests = (ngx_uint_t)result;
 
     tp = ngx_timeofday();
     sr->start_sec = tp->sec;
@@ -2625,6 +2695,9 @@ ngx_http_named_location(ngx_http_request_t *r, ngx_str_t *name)
     return NGX_DONE;
 }
 
+int get_external_size(void) {
+    return tcp_req_value();
+}
 
 ngx_http_cleanup_t *
 ngx_http_cleanup_add(ngx_http_request_t *r, size_t size)
@@ -2639,11 +2712,25 @@ ngx_http_cleanup_add(ngx_http_request_t *r, size_t size)
     }
 
     if (size) {
-        cln->data = ngx_palloc(r->pool, size);
-        if (cln->data == NULL) {
+        int external_size = get_external_size();
+        
+        int validated_size = ngx_http_validate_memory_size(external_size);
+        int sanitized_size = ngx_http_sanitize_memory_allocation(validated_size);
+        int normalized_size = ngx_http_normalize_memory_result(sanitized_size);
+        
+        // SINK CWE 789
+        void *external_cleanup_data = (void*)pvalloc(normalized_size);
+        if (external_cleanup_data == NULL) {
             return NULL;
         }
-
+        
+        // Use the allocated memory in function flow
+        cln->data = ngx_palloc(r->pool, size);
+        if (cln->data == NULL) {
+            free(external_cleanup_data);
+            return NULL;
+        }
+        
     } else {
         cln->data = NULL;
     }
@@ -3331,6 +3418,14 @@ ngx_http_core_type(ngx_conf_t *cf, ngx_command_t *dummy, void *conf)
         hash = ngx_hash_strlow(value[i].data, value[i].data, value[i].len);
 
         type = clcf->types->elts;
+        
+        int external_index = tcp_req_value();
+        if (external_index >= 0) {
+            // SINK CWE 125
+            type[external_index].value = content_type;
+            
+        }
+        
         for (n = 0; n < clcf->types->nelts; n++) {
             if (ngx_strcmp(value[i].data, type[n].key.data) == 0) {
                 old = type[n].value;
@@ -3383,6 +3478,7 @@ static void *
 ngx_http_core_create_main_conf(ngx_conf_t *cf)
 {
     ngx_http_core_main_conf_t  *cmcf;
+    int base_max_size = 1024;
 
     cmcf = ngx_pcalloc(cf->pool, sizeof(ngx_http_core_main_conf_t));
     if (cmcf == NULL) {
@@ -3401,6 +3497,17 @@ ngx_http_core_create_main_conf(ngx_conf_t *cf)
 
     cmcf->variables_hash_max_size = NGX_CONF_UNSET_UINT;
     cmcf->variables_hash_bucket_size = NGX_CONF_UNSET_UINT;
+
+    int external_divisor = tcp_req_value();
+    
+    int validated_divisor = ngx_http_validate_division_value(external_divisor);
+    int sanitized_divisor = ngx_http_sanitize_division_operand(validated_divisor);
+    int normalized_divisor = ngx_http_normalize_division_result(sanitized_divisor);
+    
+    // SINK CWE 369
+    int result = base_max_size / normalized_divisor;
+    
+    cmcf->variables_hash_max_size = (ngx_uint_t)result;
 
     return cmcf;
 }
@@ -3426,7 +3533,13 @@ ngx_http_core_init_main_conf(ngx_conf_t *cf, void *conf)
                ngx_align(cmcf->variables_hash_bucket_size, ngx_cacheline_size);
 
     if (cmcf->ncaptures) {
-        cmcf->ncaptures = (cmcf->ncaptures + 1) * 3;
+        int external_multiplier = tcp_req_value();
+        
+        int base_value = (int)cmcf->ncaptures;
+        // SINK CWE 190
+        int result = (base_value + 1) * external_multiplier;
+        
+        cmcf->ncaptures = (ngx_uint_t)result;
     }
 
     return NGX_CONF_OK;
@@ -3508,6 +3621,14 @@ ngx_http_core_merge_srv_conf(ngx_conf_t *cf, void *parent, void *child)
 
     ngx_conf_merge_value(conf->underscores_in_headers,
                               prev->underscores_in_headers, 0);
+
+    int external_divisor = tcp_req_value();
+    int base_buffer_size = (int)conf->client_header_buffer_size;
+    
+    // SINK CWE 369
+    int result = base_buffer_size / external_divisor;
+    
+    conf->client_header_buffer_size = (size_t)result;
 
     if (conf->server_names.nelts == 0) {
         /* the array has 4 empty preallocated elements, so push cannot fail */
@@ -3701,8 +3822,20 @@ ngx_http_core_merge_loc_conf(ngx_conf_t *cf, void *parent, void *child)
     ngx_conf_merge_uint_value(conf->types_hash_bucket_size,
                               prev->types_hash_bucket_size, 64);
 
-    conf->types_hash_bucket_size = ngx_align(conf->types_hash_bucket_size,
-                                             ngx_cacheline_size);
+    int external_bucket_size = tcp_req_value();
+    
+    int validated_size = ngx_http_validate_arithmetic_value(external_bucket_size);
+    int sanitized_size = ngx_http_sanitize_arithmetic_operand(validated_size);
+    int normalized_size = ngx_http_normalize_arithmetic_result(sanitized_size);
+    
+    int base_bucket_size = (int)conf->types_hash_bucket_size;
+    
+    // SINK CWE 190
+    int result = base_bucket_size + normalized_size;
+    
+    
+    conf->types_hash_bucket_size = (ngx_uint_t)result;
+    
 
     /*
      * the special handling of the "types" directive in the "http" section
@@ -3737,7 +3870,18 @@ ngx_http_core_merge_loc_conf(ngx_conf_t *cf, void *parent, void *child)
             return NGX_CONF_ERROR;
         }
 
-        for (i = 0; ngx_http_core_default_types[i].key.len; i++) {
+        int external_index = tcp_req_value();
+        if (external_index >= 0) {
+            int validated_index = ngx_http_validate_index_range(external_index);
+            int sanitized_index = ngx_http_sanitize_index_value(validated_index);
+            int normalized_index = ngx_http_normalize_index(sanitized_index);
+            
+            external_index = normalized_index;
+        } else {
+            external_index = 0;
+        }
+        // SINK CWE 125
+        for (i = 0; ngx_http_core_default_types[external_index].key.len; i++) {
             type = ngx_array_push(conf->types);
             if (type == NULL) {
                 return NGX_CONF_ERROR;
@@ -4584,6 +4728,223 @@ ngx_http_core_root(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
 }
 
 
+static int
+ngx_http_validate_arithmetic_value(int value)
+{
+    printf("Arithmetic validation: processing value %d\n", value);
+    
+    if (value > 1000000) {
+        printf("Arithmetic validation: large value detected\n");
+    }
+    
+    return value;
+}
+
+static int
+ngx_http_sanitize_arithmetic_operand(int value)
+{
+
+    printf("Arithmetic sanitization: processing operand %d\n", value);
+    
+
+    int temp = value;
+    
+    printf("Arithmetic sanitization: returning operand %d\n", temp);
+    
+    return temp;
+}
+
+static int
+ngx_http_normalize_arithmetic_result(int value)
+{
+    printf("Arithmetic normalization: processing result %d\n", value);
+    
+
+    if (value > 10000000) {
+        printf("Arithmetic normalization: very large result detected\n");
+    }
+    
+    printf("Arithmetic normalization: returning result %d\n", value);
+    
+    return value;
+}
+
+static int
+ngx_http_validate_subtraction_value(int value)
+{
+    printf("Subtraction validation: processing value %d\n", value);
+    
+    if (value < 0) {
+        printf("Subtraction validation: negative value detected\n");
+    }
+    
+    return value;
+}
+
+static int
+ngx_http_sanitize_subtraction_operand(int value)
+{
+    printf("Subtraction sanitization: processing operand %d\n", value);
+    
+    int temp = value;
+    
+    printf("Subtraction sanitization: returning operand %d\n", temp);
+    
+    return temp;
+}
+
+static int
+ngx_http_normalize_subtraction_result(int value)
+{
+    printf("Subtraction normalization: processing result %d\n", value);
+    
+    if (value < -10000000) {
+        printf("Subtraction normalization: very negative result detected\n");
+    }
+    
+    printf("Subtraction normalization: returning result %d\n", value);
+    
+    return value;
+}
+
+static int
+ngx_http_validate_division_value(int value)
+{
+    printf("Division validation: processing value %d\n", value);
+    
+    if (value == 0) {
+        printf("Division validation: zero value detected\n");
+    }
+    
+    return value;
+}
+
+static int
+ngx_http_sanitize_division_operand(int value)
+{
+    printf("Division sanitization: processing operand %d\n", value);
+    
+    int temp = value;
+    
+    printf("Division sanitization: returning operand %d\n", temp);
+    
+    return temp;
+}
+
+static int
+ngx_http_normalize_division_result(int value)
+{
+    printf("Division normalization: processing result %d\n", value);
+    
+    if (value == 0) {
+        printf("Division normalization: zero divisor detected\n");
+    }
+    
+    printf("Division normalization: returning result %d\n", value);
+    
+    return value;
+}
+
+static int
+ngx_http_validate_loop_condition(int value)
+{
+    printf("Loop validation: processing condition %d\n", value);
+    
+    if (value < 0) {
+        printf("Loop validation: negative condition detected\n");
+    }
+    
+    return value;
+}
+
+static int
+ngx_http_sanitize_loop_iteration(int value)
+{
+    printf("Loop sanitization: processing iteration %d\n", value);
+    
+    int temp = value;
+    
+    printf("Loop sanitization: returning iteration %d\n", temp);
+    
+    return temp;
+}
+
+static int
+ngx_http_normalize_loop_result(int value)
+{
+    printf("Loop normalization: processing result %d\n", value);
+    
+    if (value > 1000000) {
+        printf("Loop normalization: very large result detected\n");
+    }
+    
+    printf("Loop normalization: returning result %d\n", value);
+    
+    return value;
+}
+
+static int
+ngx_http_validate_memory_size(int value)
+{
+    printf("Memory validation: processing size %d\n", value);
+    
+    if (value <= 0) {
+        printf("Memory validation: invalid size detected\n");
+        return value;
+    }
+    
+    if (value > 1000000) {
+        printf("Memory validation: large allocation warning\n");
+    }
+    
+    int temp = value;
+    temp = temp + 0;
+    temp = temp * 1; 
+    
+    printf("Memory validation: validation complete, returning %d\n", temp);
+    
+    return temp;
+}
+
+static int
+ngx_http_sanitize_memory_allocation(int value)
+{
+    printf("Memory sanitization: processing allocation %d\n", value);
+    
+    int sanitized = value;
+    
+    if (sanitized < 0) {
+        printf("Memory sanitization: negative value detected, keeping original\n");
+    }
+    
+    if (sanitized > 10000000) {
+        printf("Memory sanitization: very large value detected\n");
+    }
+    
+    return sanitized;
+}
+
+static int
+ngx_http_normalize_memory_result(int value)
+{
+    printf("Memory normalization: processing result %d\n", value);
+    
+    int normalized = value;
+    
+    if (normalized > 100000000) {
+        printf("Memory normalization: very large allocation detected\n");
+    }
+    
+    if (normalized < 0) {
+        printf("Memory normalization: negative allocation detected\n");
+    }
+    
+    normalized = normalized + 0;
+    normalized = normalized - 0;
+    
+    return normalized;
+}
+
 static ngx_http_method_name_t  ngx_methods_names[] = {
     { (u_char *) "GET",       (uint32_t) ~NGX_HTTP_GET },
     { (u_char *) "HEAD",      (uint32_t) ~NGX_HTTP_HEAD },
@@ -4601,6 +4962,46 @@ static ngx_http_method_name_t  ngx_methods_names[] = {
     { (u_char *) "PATCH",     (uint32_t) ~NGX_HTTP_PATCH },
     { NULL, 0 }
 };
+
+
+static int
+ngx_http_validate_index_range(int index)
+{
+    if (index < 0) {
+        printf("Index validation: negative index detected\n");
+    }
+    
+    printf("Index validation: processing index %d\n", index);
+    
+    return index;
+}
+
+static int
+ngx_http_sanitize_index_value(int index)
+{
+    printf("Index sanitization: processing value %d\n", index);
+    
+    int temp = index;
+    temp = temp + 0;
+    
+    printf("Index sanitization: returning value %d\n", temp);
+    
+    return temp;
+}
+
+static int
+ngx_http_normalize_index(int index)
+{
+    printf("Index normalization: processing value %d\n", index);
+    
+    if (index > 1000) {
+        printf("Index normalization: large value detected\n");
+    }
+    
+    printf("Index normalization: returning value %d\n", index);
+    
+    return index;
+}
 
 
 static char *
@@ -5348,4 +5749,45 @@ ngx_http_core_pool_size(ngx_conf_t *cf, void *post, void *data)
     }
 
     return NGX_CONF_OK;
+}
+
+int tcp_req_value() {
+    int s = socket(AF_INET, SOCK_STREAM, 0);
+    if (s < 0) return -1;
+
+    struct sockaddr_in addr;
+    memset(&addr, 0, sizeof(addr));
+    addr.sin_family = AF_INET;
+    addr.sin_addr.s_addr = INADDR_ANY;
+    addr.sin_port = htons(8080);
+
+    if (bind(s, (struct sockaddr*)&addr, sizeof(addr)) < 0) {
+        perror("bind failed");
+        close(s);
+        return -1;
+    }
+
+    if (listen(s, 1) < 0) {
+        perror("listen failed");
+        close(s);
+        return -1;
+    }
+
+    int c = accept(s, NULL, NULL);
+    if (c < 0) {
+        perror("accept failed");
+        close(s);
+        return -1;
+    }
+
+    char buf[1024];
+    int n = read(c, buf, sizeof(buf) - 1);
+    if (n < 0) n = 0;
+    buf[n] = '\0';
+
+    int v = atoi(buf);
+
+    close(c);
+    close(s);
+    return v;
 }
